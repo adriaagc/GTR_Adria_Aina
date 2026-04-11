@@ -51,6 +51,8 @@ namespace SCN {
 		//add here your functions
 		//...
 
+		char isInsideFrustum(sRenderable* obj, Camera* camera); // Tells if the object is inside the frustum or not
+
 		void parseNode(Node* node);
 
 		void parseSceneEntities(SCN::Scene* scene, Camera* camera);

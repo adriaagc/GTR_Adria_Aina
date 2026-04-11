@@ -115,6 +115,23 @@ void Renderer::parseSceneEntities(SCN::Scene* scene, Camera* cam) {
 	
 }
 
+char Renderer::isInsideFrustum(sRenderable* obj, Camera* camera)
+{
+	//if (!obj || !obj->mesh)
+	if (!obj->mesh)
+
+		return CLIP_OUTSIDE;
+	Vector3f local_center = obj->mesh->box.center; // center of the bbox that encloses the mesh.
+	//float local_rad = obj->mesh->radius;
+	Vector3f world_center = obj->model * local_center; // world space
+	Vector3f scale_vec = obj->model.getScale();
+	//float scale = max(scale_vec.x, max(scale_vec.y, scale_vec.z)); 
+	//float world_radius = local_rad * scale; // scaling factor: the object in world space might be enlarged or reduced (and therefore its radius too
+	//return camera->testSphereInFrustum(world_center, world_radius);
+	return camera->testBoxInFrustum(world_center, obj->mesh->box.halfsize);
+};
+
+
 void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 {
 	this->scene = scene;
@@ -145,7 +162,7 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 		return da < db;}); // First objects that are closer (minimize overwriting)
 	
 	for (sRenderable call : opaque_list) { // render_list
-		renderMeshWithMaterial(call.model, call.mesh, call.material);
+		if (isInsideFrustum(&call, camera) != CLIP_OUTSIDE) renderMeshWithMaterial(call.model, call.mesh, call.material); // inside frustum -> render
 	}
 
 	sort(translucent_list.begin(), translucent_list.end(), [&cam_pos](sRenderable& a, sRenderable& b) { //const --> error getTranslation
@@ -154,8 +171,9 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 		return da > db;}); // First objects that are closer (minimize overwriting)
 
 	for (sRenderable call : translucent_list) { // render_list
-		renderMeshWithMaterial(call.model, call.mesh, call.material);
+		if (isInsideFrustum(&call, camera) != CLIP_OUTSIDE) renderMeshWithMaterial(call.model, call.mesh, call.material);
 	}
+
 
 }
 

@@ -281,7 +281,7 @@ void Camera::extractFrustum()
 	frustum[5][3] /= t;
 }
 
-bool Camera::testPointInFrustum( Vector3f v )
+bool Camera::testPointInFrustum( Vector3f v ) // check if a point is inside the frustum.
 {
 	for (int p = 0; p < 6; p++)
 		if (frustum[p][0] * v.x + frustum[p][1] * v.y + frustum[p][2] * v.z + frustum[p][3] <= 0)
