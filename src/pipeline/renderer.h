@@ -31,6 +31,9 @@ namespace SCN {
 		};
 
 		std::vector<sRenderable> render_list; // collect everything to render and render it in a loop
+		std::vector<sRenderable> opaque_list;
+		std::vector<sRenderable> translucent_list;
+
 
 		bool render_wireframe;
 		bool render_boundaries;

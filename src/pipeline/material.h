@@ -16,9 +16,9 @@ namespace GFX
 namespace SCN {
 
 	enum eAlphaMode {
-		NO_ALPHA,
+		NO_ALPHA, // opaque
 		MASK,
-		BLEND
+		BLEND // transparent (blending)
 	};
 
 	struct Sampler {

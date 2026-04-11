@@ -52,11 +52,26 @@ void Renderer::parseNode(Node* node) {
 		return; //not analyze empty nodes
 	}
 
-	render_list.push_back({ // temporary sRenderable object. The dots allow us not to care about the order.
-		.mesh = node->mesh,
-		.material = node->material,
-		.model = node->getGlobalMatrix()
-		});
+	//render_list.push_back({ // temporary sRenderable object. The dots allow us not to care about the order.
+	//	.mesh = node->mesh,
+	//	.material = node->material,
+	//	.model = node->getGlobalMatrix()
+	//	});
+
+	if (node->material && node->material->alpha_mode == BLEND) {
+		translucent_list.push_back({
+			.mesh = node->mesh,
+			.material = node->material,
+			.model = node->getGlobalMatrix()
+			});
+	}
+	else {
+		opaque_list.push_back({
+			.mesh = node->mesh,
+			.material = node->material,
+			.model = node->getGlobalMatrix()
+			});
+	}
 
 	for (Node* child : node->children) {
 		parseNode(child);
@@ -68,7 +83,10 @@ void Renderer::parseSceneEntities(SCN::Scene* scene, Camera* cam) {
 	// HERE =====================
 	// TODO: GENERATE RENDERABLES
 	// ==========================
-	render_list.clear(); // Clear the previous frame
+	//render_list.clear(); // Clear the previous frame
+	opaque_list.clear();
+	translucent_list.clear();
+
 
 	for (int i = 0; i < scene->entities.size(); i++) {
 		BaseEntity* entity = scene->entities[i];
@@ -78,13 +96,14 @@ void Renderer::parseSceneEntities(SCN::Scene* scene, Camera* cam) {
 		}
 
 		if (entity->getType() == eEntityType::PREFAB) {
-			//
 			PrefabEntity* e = (PrefabEntity*) entity;
-
 			parseNode(&(entity->root));
-
 		}
 
+		if (entity->getType() == eEntityType::LIGHT) {
+			//std::cout << "Light";
+
+		}
 
 		// Store Prefab Entitys
 		// ...
@@ -117,7 +136,24 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 	// HERE =====================
 	// TODO: RENDER RENDERABLES
 	// ==========================
-	for (sRenderable call : render_list) {
+
+	// We first sort the lists
+	Vector3 cam_pos = camera->eye;
+	sort(opaque_list.begin(), opaque_list.end(), [&cam_pos](sRenderable& a, sRenderable& b){ //const --> error getTranslation
+		float da = (a.model.getTranslation() - cam_pos).length();
+		float db = (b.model.getTranslation() - cam_pos).length();
+		return da < db;}); // First objects that are closer (minimize overwriting)
+	
+	for (sRenderable call : opaque_list) { // render_list
+		renderMeshWithMaterial(call.model, call.mesh, call.material);
+	}
+
+	sort(translucent_list.begin(), translucent_list.end(), [&cam_pos](sRenderable& a, sRenderable& b) { //const --> error getTranslation
+		float da = (a.model.getTranslation() - cam_pos).length();
+		float db = (b.model.getTranslation() - cam_pos).length();
+		return da > db;}); // First objects that are closer (minimize overwriting)
+
+	for (sRenderable call : translucent_list) { // render_list
 		renderMeshWithMaterial(call.model, call.mesh, call.material);
 	}
 
