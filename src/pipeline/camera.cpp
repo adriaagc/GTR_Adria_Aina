@@ -281,7 +281,7 @@ void Camera::extractFrustum()
 	frustum[5][3] /= t;
 }
 
-bool Camera::testPointInFrustum( Vector3f v ) // check if a point is inside the frustum.
+bool Camera::testPointInFrustum( Vector3f v )
 {
 	for (int p = 0; p < 6; p++)
 		if (frustum[p][0] * v.x + frustum[p][1] * v.y + frustum[p][2] * v.z + frustum[p][3] <= 0)
@@ -323,7 +323,7 @@ float Camera::getProjectedScale(Vector3f pos3D, float radius) {
 }
 
 
-char Camera::testSphereInFrustum( const Vector3f& v, float radius)
+char Camera::testSphereInFrustum( const Vector3f& v, float radius) //If the object and its radius are outside the 6 planes defined by extractFrustum this means the object doesn't have to be rendered. 
 {
 	int p;
 

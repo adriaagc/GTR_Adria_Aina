@@ -26,14 +26,18 @@ namespace SCN {
 
 		struct sRenderable {
 			GFX::Mesh* mesh = nullptr; //the thing we want to render
-			Material* material = nullptr;
+			Material* material = nullptr; 
 			Matrix44 model; //where we want to render it
 		};
 
-		std::vector<sRenderable> render_list; // collect everything to render and render it in a loop
-		std::vector<sRenderable> opaque_list;
-		std::vector<sRenderable> translucent_list;
+		struct sLights {
+			vec3 color;
+			vec3 position;
+			vec3 intensity;
+		};
 
+		std::vector<sRenderable> render_list; // collect everything to render and render it in a loop
+		std::vector<sLights> light_list;
 
 		bool render_wireframe;
 		bool render_boundaries;
@@ -50,8 +54,6 @@ namespace SCN {
 
 		//add here your functions
 		//...
-
-		char isInsideFrustum(sRenderable* obj, Camera* camera); // Tells if the object is inside the frustum or not
 
 		void parseNode(Node* node);
 

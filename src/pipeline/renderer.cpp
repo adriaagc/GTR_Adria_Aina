@@ -47,33 +47,18 @@ void Renderer::setupScene()
 }
 
 
-void Renderer::parseNode(Node* node) {
+void Renderer::parseNode(Node* node) { //obtain from each node of the sceen its mesh, material and position (model)
 	if (!node) {
 		return; //not analyze empty nodes
 	}
 
-	//render_list.push_back({ // temporary sRenderable object. The dots allow us not to care about the order.
-	//	.mesh = node->mesh,
-	//	.material = node->material,
-	//	.model = node->getGlobalMatrix()
-	//	});
+	render_list.push_back({ // temporary sRenderable object. The dots allow us not to care about the order.
+		.mesh = node->mesh,
+		.material = node->material,
+		.model = node->getGlobalMatrix()
+		});
 
-	if (node->material && node->material->alpha_mode == BLEND) {
-		translucent_list.push_back({
-			.mesh = node->mesh,
-			.material = node->material,
-			.model = node->getGlobalMatrix()
-			});
-	}
-	else {
-		opaque_list.push_back({
-			.mesh = node->mesh,
-			.material = node->material,
-			.model = node->getGlobalMatrix()
-			});
-	}
-
-	for (Node* child : node->children) {
+	for (Node* child : node->children) { //AQUÍ NO S'HAURIA DE COMPROBAR SI ESTÀ DINS EL FRUSTUM O NO???
 		parseNode(child);
 	}
 }
@@ -83,10 +68,7 @@ void Renderer::parseSceneEntities(SCN::Scene* scene, Camera* cam) {
 	// HERE =====================
 	// TODO: GENERATE RENDERABLES
 	// ==========================
-	//render_list.clear(); // Clear the previous frame
-	opaque_list.clear();
-	translucent_list.clear();
-
+	render_list.clear(); // Clear the previous frame
 
 	for (int i = 0; i < scene->entities.size(); i++) {
 		BaseEntity* entity = scene->entities[i];
@@ -96,13 +78,20 @@ void Renderer::parseSceneEntities(SCN::Scene* scene, Camera* cam) {
 		}
 
 		if (entity->getType() == eEntityType::PREFAB) {
+			//
 			PrefabEntity* e = (PrefabEntity*) entity;
+
 			parseNode(&(entity->root));
+
 		}
 
-		if (entity->getType() == eEntityType::LIGHT) {
-			//std::cout << "Light";
-
+		if (entity->getType() == SCN::eEntityType::LIGHT) {
+			LightEntity* light = (LightEntity*)entity;
+			light_list.push_back({ // temporary sRenderable object. The dots allow us not to care about the order.
+			.color = light->color,
+			.position = light->root.model.getTranslation(),
+			.intensity = light->intensity
+			});
 		}
 
 		// Store Prefab Entitys
@@ -114,23 +103,6 @@ void Renderer::parseSceneEntities(SCN::Scene* scene, Camera* cam) {
 	}
 	
 }
-
-char Renderer::isInsideFrustum(sRenderable* obj, Camera* camera)
-{
-	//if (!obj || !obj->mesh)
-	if (!obj->mesh)
-
-		return CLIP_OUTSIDE;
-	Vector3f local_center = obj->mesh->box.center; // center of the bbox that encloses the mesh.
-	//float local_rad = obj->mesh->radius;
-	Vector3f world_center = obj->model * local_center; // world space
-	Vector3f scale_vec = obj->model.getScale();
-	//float scale = max(scale_vec.x, max(scale_vec.y, scale_vec.z)); 
-	//float world_radius = local_rad * scale; // scaling factor: the object in world space might be enlarged or reduced (and therefore its radius too
-	//return camera->testSphereInFrustum(world_center, world_radius);
-	return camera->testBoxInFrustum(world_center, obj->mesh->box.halfsize);
-};
-
 
 void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 {
@@ -154,26 +126,11 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 	// TODO: RENDER RENDERABLES
 	// ==========================
 
-	// We first sort the lists
-	Vector3 cam_pos = camera->eye;
-	sort(opaque_list.begin(), opaque_list.end(), [&cam_pos](sRenderable& a, sRenderable& b){ //const --> error getTranslation
-		float da = (a.model.getTranslation() - cam_pos).length();
-		float db = (b.model.getTranslation() - cam_pos).length();
-		return da < db;}); // First objects that are closer (minimize overwriting)
-	
-	for (sRenderable call : opaque_list) { // render_list
-		if (isInsideFrustum(&call, camera) != CLIP_OUTSIDE) renderMeshWithMaterial(call.model, call.mesh, call.material); // inside frustum -> render
+	//POT SER QUE FALTI ORDENAR LA LLISTA??? APARTAT 3.4, diapo 31 (render front to back opaque objects; render back to front transparent objects; first transparent  objects and then opaque objects) 
+
+	for (sRenderable call : render_list) { //for each element of the render_list
+		renderMeshWithMaterial(call.model, call.mesh, call.material); //render the information of each node. 
 	}
-
-	sort(translucent_list.begin(), translucent_list.end(), [&cam_pos](sRenderable& a, sRenderable& b) { //const --> error getTranslation
-		float da = (a.model.getTranslation() - cam_pos).length();
-		float db = (b.model.getTranslation() - cam_pos).length();
-		return da > db;}); // First objects that are closer (minimize overwriting)
-
-	for (sRenderable call : translucent_list) { // render_list
-		if (isInsideFrustum(&call, camera) != CLIP_OUTSIDE) renderMeshWithMaterial(call.model, call.mesh, call.material);
-	}
-
 
 }
 
@@ -232,7 +189,7 @@ void Renderer::renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN
 
 	glEnable(GL_DEPTH_TEST);
 
-	//chose a shader
+	//chose a shader 
 	shader = GFX::Shader::Get("texture");
 
     assert(glGetError() == GL_NO_ERROR);
@@ -254,6 +211,35 @@ void Renderer::renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN
 	// Upload time, for cool shader effects
 	float t = getTime();
 	shader->setUniform("u_time", t );
+
+	//Només em falta passar al shader del phong la primera llum, i ara ho extenc a més d'una llum 
+	SCN::Scene* scene = SCN::Scene::instance; //Creem una instancia de la scene. 
+	
+	//int num_lights = 0;
+	
+	//---------------
+	/*if (scene->entities.size() > 0) {
+		for (int i = 0; i < scene->entities.size(); ++i) {*/
+
+				//num_lights++;
+				//-----------
+				//SCN::BaseEntity* first_light_ent = nullptr;
+				//SCN::LightEntity* first_light = nullptr;
+
+				//first_light_ent = scene->entities[i];
+				//first_light = (SCN::LightEntity*)first_light_ent;
+				//
+				//shader->setUniform("u_light_position", first_light->root.model.getTranslation());
+				//shader->setUniform("u_light_color", first_light->color);
+				////break; // Un cop trobada la primera, surto del bucle. 
+	/*		} 
+		}
+	}*/
+	shader->setUniform("u_colors", light_colors);
+	shader->setUniform("u_light_positions", light_positions);
+	shader->setUniform("u_num_lights", num_lights);
+	shader->setUniform("u_ambient_light", vec4(scene->ambient_light,1.0f)); //Ho he passat a vec4 per després al shader poder posar directament vec4 amb la hambient light. 
+
 
 	// Render just the verticies as a wireframe
 	if (render_wireframe)

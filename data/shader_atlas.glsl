@@ -5,15 +5,15 @@ skybox basic.vs skybox.fs
 depth quad.vs depth.fs
 multi basic.vs multi.fs
 
-\perturbNormal
+\perturbNormal 
 
 // From https://github.com/glslify/glsl-perturb-normal/blob/master/cotangent-frame.glsl
-mat3 cotangent_frame(vec3 N, vec3 p, vec2 uv)
+mat3 cotangent_frame(vec3 N, vec3 p, vec2 uv) 
 {
 	// get edge vectors of the pixel triangle
 	vec3 dp1 = dFdx(p);
 	vec3 dp2 = dFdy(p);
-	vec2 duv1 = dFdx(uv);
+	vec2 duv1 = dFdx(uv); 
 	vec2 duv2 = dFdy(uv);
 
 	// solve the linear system
@@ -110,16 +110,30 @@ void main()
 
 #version 330 core
 
+#define MAX_LIGHTS 100
+
 in vec3 v_position;
 in vec3 v_world_position;
 in vec3 v_normal;
 in vec2 v_uv;
 in vec4 v_color;
 
-uniform vec4 u_color;
+// uniform vec4 u_color; //u_light_color
+uniform vec3 u_colors[MAX_LIGHTS]; // Si cada llum té un color diferent
+uniform int u_num_lights;
+uniform float u_shininess;
 uniform sampler2D u_texture;
 uniform float u_time;
 uniform float u_alpha_cutoff;
+
+
+//----------------
+
+
+//uniform vec3 u_light_position;
+uniform vec3 u_light_positions[MAX_LIGHTS];
+uniform vec3 u_camera_position;
+uniform vec4 u_ambient_light;
 
 out vec4 FragColor;
 
@@ -127,12 +141,46 @@ void main()
 {
 	vec2 uv = v_uv;
 	vec4 color = u_color;
+	float shininess = u_shininess;
 	color *= texture( u_texture, v_uv );
 
 	if(color.a < u_alpha_cutoff)
 		discard;
+	
+	//Phong formula
+	
+	//ambient component:
+	vec4 ambient_light = color * u_ambient_light;
+	vec4 light_phong = ambient_light;
+	vec3 normal = normalize(v_normal);
+	vec3 view_vector = normalize(u_camera_position - v_world_position); // to the camera.
 
-	FragColor = color;
+	for (int i =0;i<u_num_lights;i++){
+		float d = distance(u_light_positions[i], v_world_position);
+		float light_attenuation = 1.0 / (d*d);
+		
+		//diffuse component:
+		vec4 color_light = u_color[i];
+		vec3 light_vector = normalize(u_light_positions[i] - v_world_position); // to the light. 
+
+		float diffuse_intensity = max(dot(normal, light_vector), 0.0);
+		vec4 diffuse_light = color_light * diffuse_intensity * light_attenuation;
+	
+		//specular component:
+		vec3 reflect_vector = reflect(-light_vector, normal); // the direction of the reflected light.
+
+		float dot_specualr = max(dot(reflect_vector, view_vector), 0.0);
+		float pow_specular = pow(dot_specualr, shininess); //estic dient que la brillantor es 32.0?
+		vec4 specular_light = color_light * pow_specular * light_attenuation;
+
+		light_phong += diffuse_light + specular_light;
+	}
+	
+	// light_phong = light_phong + ambient_light;
+
+	FragColor = light_phong;
+
+	// FragColor = color;
 }
 
 
