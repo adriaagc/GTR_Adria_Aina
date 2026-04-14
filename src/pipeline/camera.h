@@ -33,7 +33,7 @@ public:
 	float left,right,top,bottom;
 
 	//planes
-	float frustum[6][4];
+	float frustum[6][4]; // stores 6 planes (left, right, bottom, top, near, far), each represented w/ 4 params (ax + by + cz + d = 0)
 
 	//matrices
 	Matrix44 view_matrix;

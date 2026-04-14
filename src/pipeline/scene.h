@@ -124,7 +124,6 @@ namespace SCN {
 	};
 
 	//contains all entities of the scene
-	//que poden ser lights, camaras, characters, partical systems...
 	class Scene
 	{
 	public:

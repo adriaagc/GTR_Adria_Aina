@@ -4,6 +4,8 @@
 
 #include "light.h"
 
+#define MAX_LIGHTS 5
+
 //forward declarations
 class Camera;
 class Skeleton;
@@ -26,18 +28,22 @@ namespace SCN {
 
 		struct sRenderable {
 			GFX::Mesh* mesh = nullptr; //the thing we want to render
-			Material* material = nullptr; 
+			Material* material = nullptr;
 			Matrix44 model; //where we want to render it
 		};
 
-		struct sLights {
+		//std::vector<sRenderable> render_list; // collect everything to render and render it in a loop
+		std::vector<sRenderable> opaque_list;
+		std::vector<sRenderable> translucent_list;
+
+
+		struct sLight {
 			vec3 color;
-			vec3 position;
-			vec3 intensity;
+			vec3 pos;
+			float intensity;
 		};
 
-		std::vector<sRenderable> render_list; // collect everything to render and render it in a loop
-		std::vector<sLights> light_list;
+		std::vector<sLight> light_list;
 
 		bool render_wireframe;
 		bool render_boundaries;
@@ -55,6 +61,8 @@ namespace SCN {
 		//add here your functions
 		//...
 
+		char isInsideFrustum(sRenderable* obj, Camera* camera); // Tells if the object is inside the frustum or not
+
 		void parseNode(Node* node);
 
 		void parseSceneEntities(SCN::Scene* scene, Camera* camera);
@@ -67,6 +75,9 @@ namespace SCN {
 
 		//to render one mesh given its material and transformation matrix
 		void renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN::Material* material);
+
+		//to render lights
+		void fillLightArrays(Vector3f* light_pos, Vector3f* light_color, float* light_intensity);
 
 		void showUI();
 	};

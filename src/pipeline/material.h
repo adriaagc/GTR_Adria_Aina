@@ -16,9 +16,9 @@ namespace GFX
 namespace SCN {
 
 	enum eAlphaMode {
-		NO_ALPHA,
+		NO_ALPHA, // opaque
 		MASK,
-		BLEND
+		BLEND // transparent (blending)
 	};
 
 	struct Sampler {
@@ -69,7 +69,7 @@ namespace SCN {
 		Sampler textures[eTextureChannel::ALL];
 
 		//ctors
-		Material() : alpha_mode(NO_ALPHA), alpha_cutoff(0.5), color(1, 1, 1, 1), two_sided(false), roughness_factor(1), metallic_factor(0), shininess(32.0f) {
+		Material() : alpha_mode(NO_ALPHA), alpha_cutoff(0.5), color(1, 1, 1, 1), two_sided(false), roughness_factor(1), metallic_factor(0), shininess(20.0f) {
 			//color_texture = emissive_texture = metallic_roughness_texture = occlusion_texture = normal_texture = NULL;
 			index = s_last_index++;
 		}

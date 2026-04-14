@@ -46,29 +46,39 @@ void Renderer::setupScene()
 		skybox_cubemap = nullptr;
 }
 
-
-void Renderer::parseNode(Node* node) { //obtain from each node of the sceen its mesh, material and position (model)
+void Renderer::parseNode(Node* node) {
 	if (!node) {
 		return; //not analyze empty nodes
 	}
 
-	render_list.push_back({ // temporary sRenderable object. The dots allow us not to care about the order.
-		.mesh = node->mesh,
-		.material = node->material,
-		.model = node->getGlobalMatrix()
-		});
+	if (node->material && node->material->alpha_mode == BLEND) {
+		translucent_list.push_back({
+			.mesh = node->mesh,
+			.material = node->material,
+			.model = node->getGlobalMatrix()
+			});
+	}
+	else {
+		opaque_list.push_back({
+			.mesh = node->mesh,
+			.material = node->material,
+			.model = node->getGlobalMatrix()
+			});
+	}
 
-	for (Node* child : node->children) { //AQUÍ NO S'HAURIA DE COMPROBAR SI ESTÀ DINS EL FRUSTUM O NO???
+	for (Node* child : node->children) {
 		parseNode(child);
 	}
 }
-
 
 void Renderer::parseSceneEntities(SCN::Scene* scene, Camera* cam) {
 	// HERE =====================
 	// TODO: GENERATE RENDERABLES
 	// ==========================
-	render_list.clear(); // Clear the previous frame
+	//render_list.clear(); // Clear the previous frame
+	opaque_list.clear();
+	translucent_list.clear();
+	light_list.clear();
 
 	for (int i = 0; i < scene->entities.size(); i++) {
 		BaseEntity* entity = scene->entities[i];
@@ -78,31 +88,37 @@ void Renderer::parseSceneEntities(SCN::Scene* scene, Camera* cam) {
 		}
 
 		if (entity->getType() == eEntityType::PREFAB) {
-			//
 			PrefabEntity* e = (PrefabEntity*) entity;
-
 			parseNode(&(entity->root));
-
 		}
 
-		if (entity->getType() == SCN::eEntityType::LIGHT) {
-			LightEntity* light = (LightEntity*)entity;
-			light_list.push_back({ // temporary sRenderable object. The dots allow us not to care about the order.
-			.color = light->color,
-			.position = light->root.model.getTranslation(),
-			.intensity = light->intensity
+		if (entity->getType() == eEntityType::LIGHT) {
+			LightEntity* l = (LightEntity*)entity; // cast from BaseEntity to LightEntity
+			light_list.push_back({
+				.color = l->color,
+				.pos = entity->root.global_model.getTranslation(),
+				.intensity = l->intensity
 			});
 		}
-
-		// Store Prefab Entitys
-		// ...
-		//		Store Children Prefab Entities
-
-		// Store Lights
-		// ...
 	}
 	
 }
+
+char Renderer::isInsideFrustum(sRenderable* obj, Camera* camera)
+{
+	if (!obj->mesh)
+		return CLIP_OUTSIDE;
+
+	Vector3f local_center = obj->mesh->box.center; // center of the bbox that encloses the mesh.
+	//float local_rad = obj->mesh->radius;
+	Vector3f world_center = obj->model * local_center; // world space
+	Vector3f scale_vec = obj->model.getScale();
+	//float scale = max(scale_vec.x, max(scale_vec.y, scale_vec.z)); 
+	//float world_radius = local_rad * scale; // scaling factor: the object in world space might be enlarged or reduced (and therefore its radius too
+	//return camera->testSphereInFrustum(world_center, world_radius);
+	return camera->testBoxInFrustum(world_center, obj->mesh->box.halfsize);
+};
+
 
 void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 {
@@ -122,18 +138,32 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 	if(skybox_cubemap)
 		renderSkybox(skybox_cubemap);
 
-	// HERE =====================
-	// TODO: RENDER RENDERABLES
-	// ==========================
+	// Render the entities:
+	
+	// we have to sort the lists
+	Vector3 cam_pos = camera->eye;
 
-	//POT SER QUE FALTI ORDENAR LA LLISTA??? APARTAT 3.4, diapo 31 (render front to back opaque objects; render back to front transparent objects; first transparent  objects and then opaque objects) 
+	sort(opaque_list.begin(), opaque_list.end(), [&cam_pos](sRenderable& a, sRenderable& b){ //const --> error getTranslation
+		float da = (a.model.getTranslation() - cam_pos).length();
+		float db = (b.model.getTranslation() - cam_pos).length();
+		return da < db;}); // First objects that are closer (minimize overwriting)
+	
+	// render_list
+	for (sRenderable call : opaque_list) {
+		if (isInsideFrustum(&call, camera) != CLIP_OUTSIDE) renderMeshWithMaterial(call.model, call.mesh, call.material); // inside frustum -> render
+	}
 
-	for (sRenderable call : render_list) { //for each element of the render_list
-		renderMeshWithMaterial(call.model, call.mesh, call.material); //render the information of each node. 
+	sort(translucent_list.begin(), translucent_list.end(), [&cam_pos](sRenderable& a, sRenderable& b) { //const --> error getTranslation
+		float da = (a.model.getTranslation() - cam_pos).length();
+		float db = (b.model.getTranslation() - cam_pos).length();
+		return da > db;}); // First objects that are closer (minimize overwriting)
+	
+	// render_list
+	for (sRenderable call : translucent_list) { 
+		if (isInsideFrustum(&call, camera) != CLIP_OUTSIDE) renderMeshWithMaterial(call.model, call.mesh, call.material);
 	}
 
 }
-
 
 void Renderer::renderSkybox(GFX::Texture* cubemap)
 {
@@ -175,6 +205,16 @@ void Renderer::renderSkybox(GFX::Texture* cubemap)
 	glEnable(GL_DEPTH_TEST);
 }
 
+void Renderer::fillLightArrays(Vector3f* light_pos, Vector3f* light_color, float* light_intensity)
+{
+	for (int i = 0; i < light_list.size(); i++) { //cannot render more than the lights we already have stored
+		if (i > MAX_LIGHTS) return; //We only render up to MAX_LIGHTS
+		light_pos[i] = light_list[i].pos;
+		light_color[i] = light_list[i].color;
+		light_intensity[i] = light_list[i].intensity;
+	}
+}
+
 // Renders a mesh given its transform and material
 void Renderer::renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN::Material* material)
 {
@@ -186,17 +226,20 @@ void Renderer::renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN
 	//define locals to simplify coding
 	GFX::Shader* shader = NULL;
 	Camera* camera = Camera::current;
+	Scene* scene = Scene::instance;
 
 	glEnable(GL_DEPTH_TEST);
 
-	//chose a shader 
-	shader = GFX::Shader::Get("texture");
+	//chose a shader
+	//shader = GFX::Shader::Get("texture");
+	shader = GFX::Shader::Get("phong");
 
     assert(glGetError() == GL_NO_ERROR);
 
 	//no shader? then nothing to render
 	if (!shader)
 		return;
+	
 	shader->enable();
 
 	material->bind(shader);
@@ -212,34 +255,19 @@ void Renderer::renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN
 	float t = getTime();
 	shader->setUniform("u_time", t );
 
-	//Només em falta passar al shader del phong la primera llum, i ara ho extenc a més d'una llum 
-	SCN::Scene* scene = SCN::Scene::instance; //Creem una instancia de la scene. 
+	//Uniforms Light
+	shader->setUniform("u_ambient_light", scene->ambient_light);
 	
-	//int num_lights = 0;
-	
-	//---------------
-	/*if (scene->entities.size() > 0) {
-		for (int i = 0; i < scene->entities.size(); ++i) {*/
+	Vector3f light_pos[MAX_LIGHTS];
+	Vector3f light_color[MAX_LIGHTS];
+	float light_intensity[MAX_LIGHTS];
 
-				//num_lights++;
-				//-----------
-				//SCN::BaseEntity* first_light_ent = nullptr;
-				//SCN::LightEntity* first_light = nullptr;
+	fillLightArrays(light_pos, light_color, light_intensity);
 
-				//first_light_ent = scene->entities[i];
-				//first_light = (SCN::LightEntity*)first_light_ent;
-				//
-				//shader->setUniform("u_light_position", first_light->root.model.getTranslation());
-				//shader->setUniform("u_light_color", first_light->color);
-				////break; // Un cop trobada la primera, surto del bucle. 
-	/*		} 
-		}
-	}*/
-	shader->setUniform("u_colors", light_colors);
-	shader->setUniform("u_light_positions", light_positions);
-	shader->setUniform("u_num_lights", num_lights);
-	shader->setUniform("u_ambient_light", vec4(scene->ambient_light,1.0f)); //Ho he passat a vec4 per després al shader poder posar directament vec4 amb la hambient light. 
-
+	shader->setUniform3Array("u_light_pos", (float*)&light_pos, MAX_LIGHTS);
+	shader->setUniform1Array("u_intensity", (float*)light_intensity, MAX_LIGHTS);
+	shader->setUniform3Array("u_light_color", (float*)&light_color, MAX_LIGHTS);
+	shader->setUniform("u_num_lights", (int)light_list.size());
 
 	// Render just the verticies as a wireframe
 	if (render_wireframe)
@@ -255,6 +283,7 @@ void Renderer::renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN
 	glDisable(GL_BLEND);
 	glPolygonMode( GL_FRONT_AND_BACK, GL_FILL );
 }
+
 
 #ifndef SKIP_IMGUI
 
