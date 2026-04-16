@@ -96,10 +96,12 @@ void Renderer::parseSceneEntities(SCN::Scene* scene, Camera* cam) {
 			LightEntity* l = (LightEntity*)entity; // cast from BaseEntity to LightEntity
 			light_list.push_back({
 				.color = l->color,
-				.pos = entity->root.global_model.getTranslation(),
+				.pos = l->root.getGlobalMatrix().getTranslation(),
 				.intensity = l->intensity,
-				.front = l->root.global_model.frontVector(),
-				.l_type = l->light_type
+				.front = l->root.getGlobalMatrix().frontVector(),
+				.l_type = l->light_type,
+				.cone_info_x = l->cone_info.x,//amb graus, ho passem a radians quan passo d'una llista de llums diferents llistes de les component de les llums. 
+				.cone_info_y = l->cone_info.y
 			});
 		}
 	}
@@ -207,7 +209,7 @@ void Renderer::renderSkybox(GFX::Texture* cubemap)
 	glEnable(GL_DEPTH_TEST);
 }
 
-void Renderer::fillLightArrays(Vector3f* light_pos, Vector3f* light_color, float* light_intensity, Vector3f* light_font, int* light_type)
+void Renderer::fillLightArrays(Vector3f* light_pos, Vector3f* light_color, float* light_intensity, Vector3f* light_font, int* light_type, float* light_cone_x, float* light_cone_y)
 {
 	for (int i = 0; i < light_list.size(); i++) { //cannot render more than the lights we already have stored
 		if (i >= MAX_LIGHTS) break; //We only render up to MAX_LIGHTS
@@ -216,6 +218,8 @@ void Renderer::fillLightArrays(Vector3f* light_pos, Vector3f* light_color, float
 		light_intensity[i] = light_list[i].intensity;
 		light_font[i] = light_list[i].front;
 		light_type[i] = static_cast<int>(light_list[i].l_type); //Per canviar de eLightType a un int. 
+		light_cone_x[i] = DEG2RAD * light_list[i].cone_info_x; //ho guardo amb radinas ja
+		light_cone_y[i] = DEG2RAD * light_list[i].cone_info_y;
 	}
 }
 
@@ -267,14 +271,18 @@ void Renderer::renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN
 	Vector3f light_front[MAX_LIGHTS];
 	int light_type[MAX_LIGHTS];
 	float light_intensity[MAX_LIGHTS];
+	float light_cone_x[MAX_LIGHTS];
+	float light_cone_y[MAX_LIGHTS];
 
-	fillLightArrays(light_pos, light_color, light_intensity, light_front, light_type);
+	fillLightArrays(light_pos, light_color, light_intensity, light_front, light_type, light_cone_x, light_cone_y);
 
 	shader->setUniform3Array("u_light_pos", (float*)&light_pos, MAX_LIGHTS); //enviem al shader la posició de memoria de la primera posició de les llums i quantes llums hi ha com a màxim.
 	shader->setUniform1Array("u_intensity", (float*)light_intensity, MAX_LIGHTS);
 	shader->setUniform3Array("u_light_color", (float*)&light_color, MAX_LIGHTS);
 	shader->setUniform3Array("u_light_front", (float*)&light_front, MAX_LIGHTS);
 	shader->setUniform1Array("u_light_type", (int*)&light_type, MAX_LIGHTS);
+	shader->setUniform1Array("u_light_cone_x", (float*)&light_cone_x, MAX_LIGHTS);//l'hi passo ja amb radians
+	shader->setUniform1Array("u_light_cone_y", (float*)&light_cone_y, MAX_LIGHTS);
 	shader->setUniform("u_num_lights", (int)light_list.size());
 
 	// Render just the verticies as a wireframe

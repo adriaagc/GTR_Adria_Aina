@@ -43,6 +43,8 @@ namespace SCN {
 			float intensity;
 			vec3 front;
 			eLightType l_type;
+			float cone_info_x;
+			float cone_info_y;
 		};
 
 		std::vector<sLight> light_list;
@@ -80,7 +82,7 @@ namespace SCN {
 		void renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN::Material* material);
 
 		//to render lights
-		void fillLightArrays(Vector3f* light_pos, Vector3f* light_color, float* light_intensity, Vector3f* light_font, int* light_type);
+		void fillLightArrays(Vector3f* light_pos, Vector3f* light_color, float* light_intensity, Vector3f* light_font, int* light_type, float* ligh_cone_x, float* ligh_cone_y);
 
 		void showUI();
 	};

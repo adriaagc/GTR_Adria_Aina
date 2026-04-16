@@ -271,6 +271,8 @@ uniform float u_intensity[MAX_LIGHTS]; //array
 uniform vec3 u_light_color[MAX_LIGHTS]; //array
 uniform vec3 u_light_front[MAX_LIGHTS]; //array
 uniform int u_light_type[MAX_LIGHTS]; //array
+uniform float u_light_cone_x[MAX_LIGHTS]; //array
+uniform float u_light_cone_y[MAX_LIGHTS]; //array
 uniform float u_shininess; //constant for the moment
 uniform int u_num_lights;
 
@@ -282,8 +284,9 @@ out vec4 FragColor;
 void main()
 {
 	vec2 uv = v_uv;
-	vec4 color = u_color;
-	color *= texture( u_texture, v_uv); //This will be our k = k_a = k_d = k_s
+	vec4 color = texture(u_texture,v_uv);
+	color *= u_color; //This will be our k = k_a = k_d = k_s
+
 
 	if(color.a < u_alpha_cutoff)
 		discard;
@@ -291,29 +294,30 @@ void main()
 	//common multiple:
 	vec3 k = color.rgb;
 	//variables:
-	float d, attenuation, RV;
-	vec3 light_intensity, L, N, R, V, phong, diffuse_light_comp, specular_light_comp;
+	float d, attenuation, RV, attenuation_distance, attenuation_angle;
+	vec3 light_intensity, L, N, R, V, phong, diffuse_light_comp, specular_light_comp, D;
 
 	//ambient:
 	phong = u_ambient_light * k;
+	N = normalize(v_normal);
+	V = normalize(u_camera_position - v_world_position);
 
 	for(int i = 0; i<MAX_LIGHTS; i++) {
+		// d = distance(u_light_pos[i], v_world_position); //distance from point to light source in world space
+		d = length(u_light_pos[i] - v_world_position);
 		if (i < u_num_lights) {
 			if (u_light_type[i]==1){ //point light
 				//attenuated light intensity:
-				d = distance(u_light_pos[i], v_world_position); //distance from point to light source in world space
 				attenuation = u_intensity[i] / pow(d,2);
 				light_intensity = u_light_color[i] * attenuation;
 
 				//diffuse:
 				L = normalize(u_light_pos[i] - v_world_position);
-				N = normalize(v_normal);
-				diffuse_light_comp = max(dot(N,L), 0.0) * light_intensity * k;
+				diffuse_light_comp = clamp(dot(L,N), 0.0, 1.0) * light_intensity * k;
 			
 				//specular:
-				R = normalize(reflect(-L,N));
-				V = normalize(u_camera_position - v_world_position);
-				RV = max(dot(R,V), 0.0);
+				R = reflect(L,N);
+				RV = clamp(dot(R,V), 0.0, 1.0);
 				specular_light_comp = pow(RV, u_shininess) * light_intensity * k ;
 
 				phong += diffuse_light_comp + specular_light_comp;
@@ -324,37 +328,42 @@ void main()
 
 				//diffuse:
 				L = normalize(-u_light_front[i]);
-				N = normalize(v_normal);
-				diffuse_light_comp = max(dot(N,L), 0.0) * light_intensity * k;
+				diffuse_light_comp = clamp(dot(N,L), 0.0, 1.0) * light_intensity * k;
 			
 				//specular:
-				R = normalize(reflect(-L,N));
-				V = normalize(u_camera_position - v_world_position);
-				RV = max(dot(R,V), 0.0);
+				R = reflect(L,N);
+				RV = clamp(dot(R,V), 0.0, 1.0);
 				specular_light_comp = pow(RV, u_shininess) * light_intensity * k;
 
 				phong += diffuse_light_comp + specular_light_comp;
 			}
-			else{ //spot light DE MOMENT SENSE CAP CANVI if (u_light_type[i]==2) 
+			else{//spot light, like the pointlight but with a different attenuation. 
 				//attenuated light intensity:
-				d = distance(u_light_pos[i], v_world_position); //distance from point to light source in world space
-				attenuation = u_intensity[i] / pow(d,2);
-				light_intensity = u_light_color[i] * attenuation;
+				attenuation_distance = u_intensity[i] / pow(d,2);
+				L = normalize(u_light_pos[i] - v_world_position);
+				D = normalize(u_light_front[i]);
+				//u_light_cone_x és el min, u_light_cone_y és el max.
+				attenuation_angle = (dot(-L,D)-clamp(cos(u_light_cone_x[i]),0.0,1.0)) / (clamp(cos(u_light_cone_x[i]),0.0,1.0)- clamp(cos(u_light_cone_y[i]),0.0,1.0));
+				
+				attenuation = attenuation_distance * attenuation_angle;
+				if(dot(L,D) >= max(0.0,cos(u_light_cone_y[i]))){
+					light_intensity = u_light_color[i] * attenuation;
+				}
+				else{
+					light_intensity = vec3(0.0);
+				}
 
 				//diffuse:
-				L = normalize(u_light_pos[i] - v_world_position);
-				N = normalize(v_normal);
-				diffuse_light_comp = max(dot(N,L), 0.0) * light_intensity * k;
+				diffuse_light_comp = clamp(dot(L,N), 0.0, 1.0) * light_intensity * k;
 			
 				//specular:
-				R = normalize(reflect(-L,N));
-				V = normalize(u_camera_position - v_world_position);
-				RV = max(dot(R,V), 0.0);
+				R = reflect(L,N);
+				RV = clamp(dot(R,V), 0.0, 1.0);
 				specular_light_comp = pow(RV, u_shininess) * light_intensity * k ;
 
 				phong += diffuse_light_comp + specular_light_comp;
 			}
 		}	
 	}
-	FragColor = vec4(phong, 1.0);
+	FragColor = vec4(phong, color.a);
 }
