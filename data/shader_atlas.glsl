@@ -265,14 +265,15 @@ uniform float u_alpha_cutoff;
 
 const int MAX_LIGHTS = 4;
 //Light Uniforms:
-uniform vec3 u_ambient_light; //constant
+uniform vec3 u_ambient_light; //constant level of light that is everywhere
 uniform vec3 u_light_pos[MAX_LIGHTS]; //array
 uniform float u_intensity[MAX_LIGHTS]; //array
 uniform vec3 u_light_color[MAX_LIGHTS]; //array
 uniform vec3 u_light_front[MAX_LIGHTS]; //array
 uniform int u_light_type[MAX_LIGHTS]; //array
-uniform float u_light_cone_x[MAX_LIGHTS]; //array
-uniform float u_light_cone_y[MAX_LIGHTS]; //array
+// uniform float u_light_cone_x[MAX_LIGHTS]; //array
+// uniform float u_light_cone_y[MAX_LIGHTS]; //array
+uniform vec2 u_light_cone[MAX_LIGHTS];
 uniform float u_shininess; //constant for the moment
 uniform int u_num_lights;
 
@@ -287,81 +288,89 @@ void main()
 	vec4 color = texture(u_texture,v_uv);
 	color *= u_color; //This will be our k = k_a = k_d = k_s
 
-
-	if(color.a < u_alpha_cutoff)
+	if(color.a < u_alpha_cutoff) // too transparent to paint
 		discard;
 
 	//common multiple:
 	vec3 k = color.rgb;
 	//variables:
 	float d, attenuation, RV, attenuation_distance, attenuation_angle;
-	vec3 light_intensity, L, N, R, V, phong, diffuse_light_comp, specular_light_comp, D;
+	vec3 light_intensity, L, N, R, V, phong, diffuse_light_comp, specular_light_comp, D, L_vec;
 
-	//ambient:
+//AMBIENT:
 	phong = u_ambient_light * k;
-	N = normalize(v_normal);
-	V = normalize(u_camera_position - v_world_position);
+
+	N = normalize(v_normal); //normalized normal to the surface
+	V = normalize(u_camera_position - v_world_position); //normalized viewing direction
 
 	for(int i = 0; i<MAX_LIGHTS; i++) {
-		// d = distance(u_light_pos[i], v_world_position); //distance from point to light source in world space
-		d = length(u_light_pos[i] - v_world_position);
+		
 		if (i < u_num_lights) {
-			if (u_light_type[i]==1){ //point light
-				//attenuated light intensity:
+	//POINT LIGHT
+			if (u_light_type[i]==1){
+			//Attenuated light intensity:
+				L_vec = u_light_pos[i] - v_world_position; //vector from point to light source
+				d = length(L_vec); //distance from point to light source
 				attenuation = u_intensity[i] / pow(d,2);
-				light_intensity = u_light_color[i] * attenuation;
+				light_intensity = u_light_color[i] * attenuation; //amount of light that reaches the point
 
-				//diffuse:
-				L = normalize(u_light_pos[i] - v_world_position);
-				diffuse_light_comp = clamp(dot(L,N), 0.0, 1.0) * light_intensity * k;
+			//DIFFUSE:
+				L = normalize(L_vec);
+				diffuse_light_comp = clamp(dot(L,N), 0.0, 1.0) * light_intensity;
 			
-				//specular:
+			//SPECULAR:
 				R = reflect(L,N);
 				RV = clamp(dot(R,V), 0.0, 1.0);
-				specular_light_comp = pow(RV, u_shininess) * light_intensity * k ;
+				specular_light_comp = pow(RV, u_shininess) * light_intensity;
 
-				phong += diffuse_light_comp + specular_light_comp;
+				phong += k*(diffuse_light_comp + specular_light_comp);
 			}
-			else if (u_light_type[i]==3){ //directional light
-				//attenuated light intensity:
-				light_intensity = u_light_color[i]; //* attenuation;
+	//DIRECTIONAL LIGHT
+			else if (u_light_type[i]==3){
+			//NO attenuations in light intensity:
+				light_intensity = u_light_color[i]; // differences in attenuation are negligible in our scene
 
-				//diffuse:
-				L = normalize(-u_light_front[i]);
-				diffuse_light_comp = clamp(dot(N,L), 0.0, 1.0) * light_intensity * k;
+			//DIFFUSE:
+				L = normalize(-u_light_front[i]); // all light rays are parallel, negation because we need the vector to point the light source! 
+				diffuse_light_comp = clamp(dot(N,L), 0.0, 1.0) * light_intensity;
 			
-				//specular:
+			//SPECULAR:
 				R = reflect(L,N);
 				RV = clamp(dot(R,V), 0.0, 1.0);
-				specular_light_comp = pow(RV, u_shininess) * light_intensity * k;
+				specular_light_comp = pow(RV, u_shininess) * light_intensity;
 
-				phong += diffuse_light_comp + specular_light_comp;
+				phong += k*(diffuse_light_comp + specular_light_comp);
 			}
-			else{//spot light, like the pointlight but with a different attenuation. 
-				//attenuated light intensity:
-				attenuation_distance = u_intensity[i] / pow(d,2);
-				L = normalize(u_light_pos[i] - v_world_position);
-				D = normalize(u_light_front[i]);
-				//u_light_cone_x és el min, u_light_cone_y és el max.
-				attenuation_angle = (dot(-L,D)-clamp(cos(u_light_cone_x[i]),0.0,1.0)) / (clamp(cos(u_light_cone_x[i]),0.0,1.0)- clamp(cos(u_light_cone_y[i]),0.0,1.0));
-				
-				attenuation = attenuation_distance * attenuation_angle;
-				if(dot(L,D) >= max(0.0,cos(u_light_cone_y[i]))){
+	//SPOT LIGHT
+			else{ //like the pointlight but with a different attenuation. 
+			//Attenuated light intensity:
+				L_vec = u_light_pos[i] - v_world_position; //vector from point to light source
+				D = normalize(u_light_front[i]); // cone center direction
+				L = normalize(L_vec); //we will negate it later as we will be computing the dot product with D
+				float LD = dot(-L,D);
+				float alpha_max = cos(u_light_cone[i].y);
+								
+				if(LD >= alpha_max){
+					float alpha_min = cos(u_light_cone[i].x);
+					d = length(L_vec); //distance from point to light source
+					attenuation_distance = u_intensity[i] / pow(d,2); // attenuation of light by distance between point and light source
+					attenuation_angle = clamp((LD - alpha_max) / (alpha_min - alpha_max), 0.0, 1.0);
+					attenuation = attenuation_distance * attenuation_angle;
 					light_intensity = u_light_color[i] * attenuation;
 				}
 				else{
 					light_intensity = vec3(0.0);
 				}
 
-				//diffuse:
-				diffuse_light_comp = clamp(dot(L,N), 0.0, 1.0) * light_intensity * k;
+			//DIFFUSE:
+				diffuse_light_comp = clamp(dot(L,N), 0.0, 1.0) * light_intensity;
 			
-				//specular:
+			//SPECULAR:
 				R = reflect(L,N);
 				RV = clamp(dot(R,V), 0.0, 1.0);
-				specular_light_comp = pow(RV, u_shininess) * light_intensity * k ;
+				specular_light_comp = pow(RV, u_shininess) * light_intensity;
 
-				phong += diffuse_light_comp + specular_light_comp;
+				phong += k*(diffuse_light_comp + specular_light_comp);
 			}
 		}	
 	}
