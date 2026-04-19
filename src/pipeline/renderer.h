@@ -25,8 +25,7 @@ namespace SCN {
 	class Renderer
 	{
 	public:
-	
-	//ENTITIES:
+
 		struct sRenderable {
 			GFX::Mesh* mesh = nullptr; //the thing we want to render
 			Material* material = nullptr;
@@ -37,29 +36,18 @@ namespace SCN {
 		std::vector<sRenderable> opaque_list;
 		std::vector<sRenderable> translucent_list;
 
-	//LIGHTS:
+
 		struct sLight {
 			vec3 color;
 			vec3 pos;
 			float intensity;
 			vec3 front;
 			eLightType l_type;
-			/*float cone_info_x;
-			float cone_info_y;*/
-			vec2 cone_info;
+			float cone_info_x;
+			float cone_info_y;
 		};
 
 		std::vector<sLight> light_list;
-
-		//These will be the uniforms for multiple light sources
-		Vector3f light_pos[MAX_LIGHTS];
-		Vector3f light_color[MAX_LIGHTS];
-		Vector3f light_front[MAX_LIGHTS];
-		int light_type[MAX_LIGHTS];
-		float light_intensity[MAX_LIGHTS];
-		/*float light_cone_x[MAX_LIGHTS];
-		float light_cone_y[MAX_LIGHTS];*/
-		Vector2f light_cone[MAX_LIGHTS];
 
 		bool render_wireframe;
 		bool render_boundaries;
@@ -94,7 +82,7 @@ namespace SCN {
 		void renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN::Material* material);
 
 		//to render lights
-		void fillLightArrays(Vector3f* light_pos, Vector3f* light_color, float* light_intensity, Vector3f* light_font, int* light_type, Vector2f* light_cone);
+		void fillLightArrays(Vector3f* light_pos, Vector3f* light_color, float* light_intensity, Vector3f* light_font, int* light_type, float* ligh_cone_x, float* ligh_cone_y);
 
 		void showUI();
 	};

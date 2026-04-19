@@ -6,7 +6,6 @@ depth quad.vs depth.fs
 multi basic.vs multi.fs
 phong basic.vs phong.fs
 
-
 \perturbNormal
 
 // From https://github.com/glslify/glsl-perturb-normal/blob/master/cotangent-frame.glsl
@@ -45,6 +44,7 @@ in vec3 a_vertex; //3D coords of the vertex in local space
 in vec3 a_normal; //direction the vertex is facing
 in vec2 a_coord; //UV coords used to map a 2D texture
 in vec4 a_color; //vertex color assigned
+in vec3 a_tangent; 
 
 uniform vec3 u_camera_pos;
 uniform mat4 u_model;
@@ -56,7 +56,8 @@ out vec3 v_position;
 out vec3 v_world_position;
 out vec3 v_normal;
 out vec2 v_uv;
-out vec4 v_color;
+out vec4 v_color; 
+out vec3 v_tangent;
 
 uniform float u_time;
 
@@ -64,6 +65,9 @@ void main()
 {	
 	//calcule the normal in camera space (the NormalMatrix is like ViewMatrix but without traslation)
 	v_normal = (u_model * vec4( a_normal, 0.0) ).xyz;
+
+	//calulate the tangent in camera space, like the normal. 
+	v_tangent = (u_model * vec4(a_tangent,0.0)).xyz;
 	
 	//calcule the vertex in object space
 	v_position = a_vertex;
@@ -247,33 +251,37 @@ void main()
 	gl_Position = u_viewprojection * vec4( v_world_position, 1.0 );
 }
 
-
 \phong.fs
 
 #version 330 core
+
+#include "perturbNormal"
 
 in vec3 v_position;
 in vec3 v_world_position;
 in vec3 v_normal;
 in vec2 v_uv;
 in vec4 v_color;
+in vec3 v_tangent;
 
 uniform vec4 u_color;
+
 uniform sampler2D u_texture;
+uniform sampler2D u_normal_texture;
 uniform float u_time;
 uniform float u_alpha_cutoff;
 
 const int MAX_LIGHTS = 4;
 //Light Uniforms:
-uniform vec3 u_ambient_light; //constant level of light that is everywhere
+uniform vec3 u_ambient_light; //constant
 uniform vec3 u_light_pos[MAX_LIGHTS]; //array
 uniform float u_intensity[MAX_LIGHTS]; //array
 uniform vec3 u_light_color[MAX_LIGHTS]; //array
 uniform vec3 u_light_front[MAX_LIGHTS]; //array
 uniform int u_light_type[MAX_LIGHTS]; //array
-// uniform float u_light_cone_x[MAX_LIGHTS]; //array
-// uniform float u_light_cone_y[MAX_LIGHTS]; //array
-uniform vec2 u_light_cone[MAX_LIGHTS];
+
+uniform float u_light_cone_x[MAX_LIGHTS]; //array
+uniform float u_light_cone_y[MAX_LIGHTS]; //array
 uniform float u_shininess; //constant for the moment
 uniform int u_num_lights;
 
@@ -288,89 +296,88 @@ void main()
 	vec4 color = texture(u_texture,v_uv);
 	color *= u_color; //This will be our k = k_a = k_d = k_s
 
-	if(color.a < u_alpha_cutoff) // too transparent to paint
+
+	if(color.a < u_alpha_cutoff)
 		discard;
 
 	//common multiple:
 	vec3 k = color.rgb;
 	//variables:
-	float d, attenuation, RV, attenuation_distance, attenuation_angle;
-	vec3 light_intensity, L, N, R, V, phong, diffuse_light_comp, specular_light_comp, D, L_vec;
+	float d, attenuation, RV, attenuation_distance, attenuation_angle, alpha_max, alpha_min;
+	vec3 light_intensity, L, N, R, V, phong, diffuse_light_comp, specular_light_comp, D, texture_normal;
 
-//AMBIENT:
+	//ambient:
 	phong = u_ambient_light * k;
-
-	N = normalize(v_normal); //normalized normal to the surface
-	V = normalize(u_camera_position - v_world_position); //normalized viewing direction
+	// N = normalize(v_normal); //quan aplico el normal map, serà la que vingui del map.
+	texture_normal = texture(u_normal_texture, v_uv).xyz;
+	texture_normal = normalize((texture_normal * 2.0) - 1.0); //from [0,1] to [-1,1]
+	N = perturbNormal(normalize(v_normal), v_world_position, v_uv, texture_normal);
+	V = normalize(u_camera_position - v_world_position);
 
 	for(int i = 0; i<MAX_LIGHTS; i++) {
-		
+		// d = distance(u_light_pos[i], v_world_position); //distance from point to light source in world space
+		d = length(u_light_pos[i] - v_world_position);
 		if (i < u_num_lights) {
-	//POINT LIGHT
-			if (u_light_type[i]==1){
-			//Attenuated light intensity:
-				L_vec = u_light_pos[i] - v_world_position; //vector from point to light source
-				d = length(L_vec); //distance from point to light source
+			if (u_light_type[i]==1){ //point light
+				//attenuated light intensity:
 				attenuation = u_intensity[i] / pow(d,2);
-				light_intensity = u_light_color[i] * attenuation; //amount of light that reaches the point
+				light_intensity = u_light_color[i] * attenuation;
 
-			//DIFFUSE:
-				L = normalize(L_vec);
-				diffuse_light_comp = clamp(dot(L,N), 0.0, 1.0) * light_intensity;
+				//diffuse:
+				L = normalize(u_light_pos[i] - v_world_position);
+				diffuse_light_comp = clamp(dot(L,N), 0.0, 1.0) * light_intensity * k;
 			
-			//SPECULAR:
+				//specular:
 				R = reflect(L,N);
 				RV = clamp(dot(R,V), 0.0, 1.0);
-				specular_light_comp = pow(RV, u_shininess) * light_intensity;
+				specular_light_comp = pow(RV, u_shininess) * light_intensity * k ;
 
-				phong += k*(diffuse_light_comp + specular_light_comp);
+				phong += diffuse_light_comp + specular_light_comp;
 			}
-	//DIRECTIONAL LIGHT
-			else if (u_light_type[i]==3){
-			//NO attenuations in light intensity:
-				light_intensity = u_light_color[i]; // differences in attenuation are negligible in our scene
+			else if (u_light_type[i]==3){ //directional light
+				//attenuated light intensity:
+				light_intensity = u_light_color[i]; //* attenuation;
 
-			//DIFFUSE:
-				L = normalize(-u_light_front[i]); // all light rays are parallel, negation because we need the vector to point the light source! 
-				diffuse_light_comp = clamp(dot(N,L), 0.0, 1.0) * light_intensity;
+				//diffuse:
+				L = normalize(-u_light_front[i]);
+				diffuse_light_comp = clamp(dot(N,L), 0.0, 1.0) * light_intensity * k;
 			
-			//SPECULAR:
+				//specular:
 				R = reflect(L,N);
 				RV = clamp(dot(R,V), 0.0, 1.0);
-				specular_light_comp = pow(RV, u_shininess) * light_intensity;
+				specular_light_comp = pow(RV, u_shininess) * light_intensity * k;
 
-				phong += k*(diffuse_light_comp + specular_light_comp);
+				phong += diffuse_light_comp + specular_light_comp;
 			}
-	//SPOT LIGHT
-			else{ //like the pointlight but with a different attenuation. 
-			//Attenuated light intensity:
-				L_vec = u_light_pos[i] - v_world_position; //vector from point to light source
-				D = normalize(u_light_front[i]); // cone center direction
-				L = normalize(L_vec); //we will negate it later as we will be computing the dot product with D
+			else{//spot light, like the pointlight but with a different attenuation. 
+				//attenuated light intensity:
+				attenuation_distance = u_intensity[i] / pow(d,2.0);
+				L = normalize(u_light_pos[i] - v_world_position);
+				D = normalize(u_light_front[i]);
 				float LD = dot(-L,D);
-				float alpha_max = cos(u_light_cone[i].y);
-								
-				if(LD >= alpha_max){
-					float alpha_min = cos(u_light_cone[i].x);
-					d = length(L_vec); //distance from point to light source
-					attenuation_distance = u_intensity[i] / pow(d,2); // attenuation of light by distance between point and light source
-					attenuation_angle = clamp((LD - alpha_max) / (alpha_min - alpha_max), 0.0, 1.0);
+				alpha_max=cos(u_light_cone_y[i]);
+
+				if(LD>=alpha_max){
+					alpha_min = cos(u_light_cone_x[i]);
+					d=length(u_light_pos[i] - v_world_position);
+					attenuation_distance=u_intensity[i]/pow(d,2);
+					attenuation_angle = clamp((LD-alpha_max)/(alpha_min - alpha_max),0.0,1.0);
 					attenuation = attenuation_distance * attenuation_angle;
 					light_intensity = u_light_color[i] * attenuation;
 				}
-				else{
+				else {
 					light_intensity = vec3(0.0);
 				}
-
-			//DIFFUSE:
-				diffuse_light_comp = clamp(dot(L,N), 0.0, 1.0) * light_intensity;
+				
+				//diffuse:
+				diffuse_light_comp = clamp(dot(L,N), 0.0, 1.0) * light_intensity * k;
 			
-			//SPECULAR:
+				//specular:
 				R = reflect(L,N);
 				RV = clamp(dot(R,V), 0.0, 1.0);
-				specular_light_comp = pow(RV, u_shininess) * light_intensity;
+				specular_light_comp = pow(RV, u_shininess) * light_intensity * k ;
 
-				phong += k*(diffuse_light_comp + specular_light_comp);
+				phong += diffuse_light_comp + specular_light_comp;
 			}
 		}	
 	}
