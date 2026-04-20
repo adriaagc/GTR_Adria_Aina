@@ -299,7 +299,7 @@ void Renderer::renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN
 
 	// Upload camera uniforms
 	shader->setUniform("u_viewprojection", camera->viewprojection_matrix);
-	shader->setUniform("u_camera_position", camera->eye);
+	shader->setUniform("u_camera_pos", camera->eye);
 
 	// Upload time, for cool shader effects
 	float t = getTime();
@@ -357,6 +357,10 @@ void Renderer::renderPlain(Camera* light_cam, const Matrix44 model, GFX::Mesh* m
 	shader->enable();
 
 	material->bind(shader);
+
+	shader->setUniform("u_camera_pos", light_cam->eye);
+	shader->setUniform("u_model", model);
+	shader->setUniform("u_viewprojection", light_cam->viewprojection_matrix);
 
 	// Render just the verticies as a wireframe
 	if (render_wireframe)

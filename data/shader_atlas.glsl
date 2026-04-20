@@ -281,7 +281,7 @@ uniform float u_shininess; //constant for the moment
 uniform int u_num_lights;
 
 //Camera Uniforms:
-uniform vec3 u_camera_position; // eye of the camera
+uniform vec3 u_camera_pos; // eye of the camera
 
 out vec4 FragColor;
 
@@ -306,7 +306,7 @@ void main()
 	//N = normalize(v_normal); //normalized normal to the surface
 	vec3 nm_color = normalize((texture(u_normalmap, v_uv).xyz * 2.0) - 1.0); //color sampled from the normalmap converted to a range [-1,1]
 	N =  perturbNormal(normalize(v_normal), v_world_position, v_uv, nm_color);
-	V = normalize(u_camera_position - v_world_position); //normalized viewing direction
+	V = normalize(u_camera_pos - v_world_position); //normalized viewing direction
 
 	for(int i = 0; i<MAX_LIGHTS; i++) {
 		
@@ -385,14 +385,20 @@ void main()
 \plain.fs
 
 #version 330 core
-#include "perturbNormal"
+
+in vec2 v_uv; // to sample the texture
+
+uniform sampler2D u_texture;
+uniform float u_alpha_cutoff;
 
 out vec4 FragColor;
 
 void main()
 {
 	//Alpha testing:
-	
-
-	FragColor = vec4(0.0, 0.0, 0.0, 1.0);
+	vec4 color = texture(u_texture, v_uv);
+	if(color.a < u_alpha_cutoff)
+		discard;
+		
+	FragColor = vec4(0.0, 0.0, 0.0, 1.0); // since glColorMask->false, any color wil be discarded
 }
