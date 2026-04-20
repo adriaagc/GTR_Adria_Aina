@@ -43,14 +43,22 @@ namespace SCN {
 			float intensity;
 			vec3 front;
 			eLightType l_type;
-			float cone_info_x;
-			float cone_info_y;
+			Vector2f cone_info;
 		};
 
 		std::vector<sLight> light_list;
 
+		Vector3f light_pos[MAX_LIGHTS];
+		Vector3f light_color[MAX_LIGHTS];
+		Vector3f light_front[MAX_LIGHTS];
+		int light_type[MAX_LIGHTS];
+		float light_intensity[MAX_LIGHTS];
+		Vector2f light_cone[MAX_LIGHTS];
+
 		bool render_wireframe;
 		bool render_boundaries;
+		bool isMultipass = false;
+		float shininess = 20.0;
 
 		GFX::Texture* skybox_cubemap;
 
@@ -93,7 +101,7 @@ namespace SCN {
 		void renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN::Material* material);
 
 		//to render lights
-		void fillLightArrays(Vector3f* light_pos, Vector3f* light_color, float* light_intensity, Vector3f* light_font, int* light_type, float* ligh_cone_x, float* ligh_cone_y);
+		void fillLightArrays(Vector3f* light_pos, Vector3f* light_color, float* light_intensity, Vector3f* light_font, int* light_type, Vector2f* ligh_cone);
 
 		void showUI();
 	};

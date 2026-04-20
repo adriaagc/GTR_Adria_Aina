@@ -100,13 +100,18 @@ void Material::bind(GFX::Shader* shader) {
 		if (texture)
 			shader->setUniform("u_texture", texture, 0);
 
+		if (normalmap_texture == NULL) {
+			normalmap_texture = GFX::Texture::getWhiteTexture();
+		}
+
 		if (normalmap_texture)
-			shader->setUniform("u_normal_texture", normalmap_texture, 1);
+			shader->setUniform("u_normalmap", normalmap_texture, 1);
 
 		// This is used to say which is the alpha threshold to what we should not paint a pixel on the screen (to cut polygons according to texture alpha)
 		shader->setUniform("u_alpha_cutoff", alpha_mode == SCN::eAlphaMode::MASK ? alpha_cutoff : 0.001f);
 
-		//Pass the shininess exponent
-		shader->setUniform("u_shininess", shininess);
+		////Pass the shininess exponent
+		//shader->setUniform("u_shininess", shininess);
+		//std::cout << shininess;
 	}
 }
