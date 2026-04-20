@@ -56,6 +56,17 @@ namespace SCN {
 
 		SCN::Scene* scene;
 
+		SCN::Material* selected_material = nullptr; //creo una variable per guardar el material actual. 
+
+		//shadow-maps
+		GFX::Texture* shadow_map = nullptr;
+		GFX::FBO* shadow_fbo = nullptr; //Buffer que es crea a la memòria de la GPU. Guarda el que "dibuixa" a una textura. 
+		int shadow_map_resolution = 1024;
+
+		//bool is_multi_pass = false;
+
+		void SelectMaterial(SCN::Material* material);
+
 		//updated every frame
 		Renderer(const char* shaders_atlas_filename );
 

@@ -44,6 +44,8 @@ namespace SCN {
 	class Material {
 	public:
 
+		float shininess = 32.0f;
+
 		//static manager to reuse materials
 		static std::map<std::string, Material*> sMaterials;
 		static Material* Get(const char* name);
@@ -63,7 +65,7 @@ namespace SCN {
 		float roughness_factor;	//how smooth or rough is the surface
 		float metallic_factor;	//how metallic is the surface
 		Vector3f emissive_factor;//does this object emit light?
-		float shininess;
+		//float shininess;
 
 		//textures
 		Sampler textures[eTextureChannel::ALL];

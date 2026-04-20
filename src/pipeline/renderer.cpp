@@ -36,6 +36,10 @@ Renderer::Renderer(const char* shader_atlas_filename)
 
 	sphere.createSphere(1.0f); // Generates sphere vertices
 	sphere.uploadToVRAM(); // Uploads to GPU memory
+
+	shadow_fbo = new GFX::FBO();	
+	shadow_fbo->setDepthOnly(shadow_map_resolution,shadow_map_resolution);
+	shadow_map = shadow_fbo->depth_texture;
 }
 
 void Renderer::setupScene()
@@ -312,6 +316,26 @@ void Renderer::showUI()
 
 	//add here your stuff
 	//...
+	/*ImGui::Text("Name: %s", name.c_str());
+	ImGui::Checkbox("Two sided", &two_sided);
+	ImGui::SliderFloat("Alpha Cutoff", &alpha_cutoff, 0.0f, 1.0f);
+	ImGui::ColorEdit3("Color", color.v);
+	ImGui::ColorEdit4("Color", color.v);
+	ImGui::Image((void*)(intptr_t)texture->texture_id, ImVec2(w, h));
+	if (ImGui::TreeNode(poiter_to_item, "My Section")) {
+		ImGui::TreePop();
+	}*/
+
+
+	if (selected_material != nullptr) {
+		ImGui::Separator();//Dibuixa una línia horitzontal
+		ImGui::Text("Editing: %s", selected_material->name.c_str()); //Afegim text a la finestra d'ImGui per saber que estem editant. 
+		ImGui::SliderFloat("Shininess", &selected_material->shininess, 0.0f, 100.0f);
+	}
+}
+
+void SCN::Renderer::SelectMaterial(SCN::Material* material) {
+	this->selected_material = material;
 }
 
 #else
