@@ -715,11 +715,6 @@ void SceneEditor::onMouseButtonUp(SDL_MouseButtonEvent event)
 			{
 				SCN::BaseEntity::s_selected = ent;
 				SCN::Node::s_selected = nullptr;
-				
-				if (renderer && ent->root.material) {
-					renderer->SelectMaterial(ent->root.material);
-				}
-
 				return;
 			}
 		}
@@ -734,23 +729,11 @@ void SceneEditor::onMouseButtonUp(SDL_MouseButtonEvent event)
 			SCN::BaseEntity::s_selected = result.entity;
 			SCN::Node::s_selected = nullptr;
 			//std::cout << result.collision << std::endl;
-			if (renderer) {
-				renderer->SelectMaterial(result.entity->root.material);//empleno la variable del material actual amb el de l'objecte que tinc selecionat. 
-				if (result.entity->root.material) {
-					std::cout << "MATERIAL:" << result.entity->root.material->name << std::endl;
-				}
-				else {
-					std::cout << "No te material assinglat." << std::endl;
-				}
-			}
 		}
 		else
 		{
 			SCN::BaseEntity::s_selected = nullptr;
 			SCN::Node::s_selected = nullptr;
-			if (renderer) {
-				renderer->SelectMaterial(nullptr);
-			}
 		}
 
 	}

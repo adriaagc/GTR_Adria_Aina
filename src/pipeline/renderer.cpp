@@ -40,6 +40,12 @@ Renderer::Renderer(const char* shader_atlas_filename)
 	shadow_fbo = new GFX::FBO();	
 	shadow_fbo->setDepthOnly(shadow_map_resolution,shadow_map_resolution);
 	shadow_map = shadow_fbo->depth_texture;
+	light_camera = new Camera();
+}
+
+Renderer::~Renderer() {
+	if (shadow_fbo) delete shadow_fbo;
+	if (light_camera) delete light_camera;
 }
 
 void Renderer::setupScene()
@@ -84,6 +90,7 @@ void Renderer::parseSceneEntities(SCN::Scene* scene, Camera* cam) {
 	opaque_list.clear();
 	translucent_list.clear();
 	light_list.clear();
+	lights.clear();
 
 	for (int i = 0; i < scene->entities.size(); i++) {
 		BaseEntity* entity = scene->entities[i];
@@ -108,6 +115,7 @@ void Renderer::parseSceneEntities(SCN::Scene* scene, Camera* cam) {
 				.cone_info = l->cone_info
 
 			});
+			lights.push_back(l);
 		}
 	}
 	
@@ -149,6 +157,34 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 
 	parseSceneEntities(scene, camera); // fill the render list
 
+//SHADOW MAP:
+	shadow_fbo->bind(); //Activem el nostre FBO de profunditat. 
+	glColorMask(false, false, false, false); // Disable writing to color
+	glClear(GL_DEPTH_BUFFER_BIT); //Clear depth buffer from prev frame
+
+	//Configure the light camera:
+	LightEntity* light = lights[3]; //directional light to cast shadows. 
+	mat4 light_model = light->root.getGlobalMatrix(); // Model matrix of the light
+	vec3 light_position = light_model.getTranslation(); // Position
+	light_camera->lookAt(light_position, light_model * vec3(0.0f, 0.0f, -1.0f), vec3(0.0f, 1.0f, 0.0f));
+	//light_pos: eye of the camera, light_model * vec3: direction of the camera, 	//up: which way is up
+	float half_size = light->area / 2.0f; //half of the width of the world that the light covers
+	light_camera->setOrthographic(-half_size, half_size, -half_size, half_size, light->near_distance, light->max_distance); //directional light -> orthographic
+	
+	//Render the mesh meshes with the light_camera:
+	for (sRenderable call : opaque_list) {
+		if (isInsideFrustum(&call, light_camera) != CLIP_OUTSIDE) {
+			renderPlain(light_camera, call.model, call.mesh, call.material);
+		}
+	}
+
+	glColorMask(true, true, true, true); // Enable writing to color
+
+	shadow_fbo->unbind();
+
+	//set the clear color (the background color)
+	glClearColor(scene->background_color.x, scene->background_color.y, scene->background_color.z, 1.0);
+
 	//set the clear color (the background color)
 	glClearColor(scene->background_color.x, scene->background_color.y, scene->background_color.z, 1.0);
 
@@ -159,34 +195,31 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 	//render skybox
 	if(skybox_cubemap)
 		renderSkybox(skybox_cubemap);
-
 	
 	//Fill light arrays:
 	fillLightArrays(light_pos, light_color, light_intensity, light_front, light_type, light_cone);
 
-	
-	// Render the entities:
-	
-	// we have to sort the lists
+//RENDER ENTITIES:
+
+	// we have to sort the objects lists
 	Vector3 cam_pos = camera->eye;
 
-	sort(opaque_list.begin(), opaque_list.end(), [&cam_pos](sRenderable& a, sRenderable& b){ //const --> error getTranslation
+	sort(opaque_list.begin(), opaque_list.end(), [&cam_pos](sRenderable& a, sRenderable& b) { //const --> error getTranslation
 		float da = (a.model.getTranslation() - cam_pos).length();
 		float db = (b.model.getTranslation() - cam_pos).length();
 		return da < db;}); // First objects that are closer (minimize overwriting)
-	
-	// render_list
-	for (sRenderable call : opaque_list) {
-		if (isInsideFrustum(&call, camera) != CLIP_OUTSIDE) renderMeshWithMaterial(call.model, call.mesh, call.material); // inside frustum -> render
-	}
 
 	sort(translucent_list.begin(), translucent_list.end(), [&cam_pos](sRenderable& a, sRenderable& b) { //const --> error getTranslation
 		float da = (a.model.getTranslation() - cam_pos).length();
 		float db = (b.model.getTranslation() - cam_pos).length();
 		return da > db;}); // First objects that are closer (minimize overwriting)
-	
-	// render_list
-	for (sRenderable call : translucent_list) { 
+
+	// render opaque list
+	for (sRenderable call : opaque_list) {
+		if (isInsideFrustum(&call, camera) != CLIP_OUTSIDE) renderMeshWithMaterial(call.model, call.mesh, call.material); // inside frustum -> render
+	}
+	// render translucent list
+	for (sRenderable call : translucent_list) {
 		if (isInsideFrustum(&call, camera) != CLIP_OUTSIDE) renderMeshWithMaterial(call.model, call.mesh, call.material);
 	}
 
@@ -300,6 +333,45 @@ void Renderer::renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN
 	glPolygonMode( GL_FRONT_AND_BACK, GL_FILL );
 }
 
+void Renderer::renderPlain(Camera* light_cam, const Matrix44 model, GFX::Mesh* mesh, SCN::Material* material) {
+	//in case there is nothing to do
+	if (!mesh || !mesh->getNumVertices() || !material)
+		return;
+	assert(glGetError() == GL_NO_ERROR);
+
+	//define locals to simplify coding
+	GFX::Shader* shader = NULL;
+	Scene* scene = Scene::instance;
+
+	glEnable(GL_DEPTH_TEST);
+
+	//chose a shader
+	shader = GFX::Shader::Get("plain");
+
+	assert(glGetError() == GL_NO_ERROR);
+
+	//no shader? then nothing to render
+	if (!shader)
+		return;
+
+	shader->enable();
+
+	material->bind(shader);
+
+	// Render just the verticies as a wireframe
+	if (render_wireframe)
+		glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+
+	//do the draw call that renders the mesh into the screen
+	mesh->render(GL_TRIANGLES);
+
+	//disable shader
+	shader->disable();
+
+	//set the render state as it was before to avoid problems with future renders
+	glDisable(GL_BLEND);
+	glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+}
 
 #ifndef SKIP_IMGUI
 
@@ -316,10 +388,6 @@ void Renderer::showUI()
 	ImGui::Checkbox("Multipass", &isMultipass);
 	ImGui::SliderFloat("Shininess", &shininess, 0.0, 100.0);
 
-}
-
-void SCN::Renderer::SelectMaterial(SCN::Material* material) {
-	this->selected_material = material;
 }
 
 #else

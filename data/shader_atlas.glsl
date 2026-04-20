@@ -5,6 +5,7 @@ skybox basic.vs skybox.fs
 depth quad.vs depth.fs
 multi basic.vs multi.fs
 phong basic.vs phong.fs
+plain basic.vs plain.fs
 
 
 \perturbNormal
@@ -381,3 +382,17 @@ void main()
 	FragColor = vec4(phong, color.a);
 }
 
+\plain.fs
+
+#version 330 core
+#include "perturbNormal"
+
+out vec4 FragColor;
+
+void main()
+{
+	//Alpha testing:
+	
+
+	FragColor = vec4(0.0, 0.0, 0.0, 1.0);
+}

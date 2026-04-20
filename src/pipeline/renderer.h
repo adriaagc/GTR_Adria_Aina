@@ -47,6 +47,7 @@ namespace SCN {
 		};
 
 		std::vector<sLight> light_list;
+		std::vector<LightEntity*> lights;
 
 		Vector3f light_pos[MAX_LIGHTS];
 		Vector3f light_color[MAX_LIGHTS];
@@ -70,13 +71,12 @@ namespace SCN {
 		GFX::Texture* shadow_map = nullptr;
 		GFX::FBO* shadow_fbo = nullptr; //Buffer que es crea a la memòria de la GPU. Guarda el que "dibuixa" a una textura. 
 		int shadow_map_resolution = 1024;
-
-		//bool is_multi_pass = false;
-
-		void SelectMaterial(SCN::Material* material);
+		Camera* light_camera;
 
 		//updated every frame
 		Renderer(const char* shaders_atlas_filename );
+		//Destructor
+		~Renderer();
 
 		//just to be sure we have everything ready for the rendering
 		void setupScene();
@@ -102,6 +102,8 @@ namespace SCN {
 
 		//to render lights
 		void fillLightArrays(Vector3f* light_pos, Vector3f* light_color, float* light_intensity, Vector3f* light_font, int* light_type, Vector2f* ligh_cone);
+
+		void renderPlain(Camera* light_cam, const Matrix44 model, GFX::Mesh* mesh, SCN::Material* material);
 
 		void showUI();
 	};
