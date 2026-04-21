@@ -38,6 +38,25 @@ vec3 perturbNormal(vec3 N, vec3 WP, vec2 uv, vec3 normal_pixel)
 	return normalize(TBN * normal_pixel);
 }
 
+\computeShadow
+
+float computeShadow(mat4 u_shadow_vp, vec3 v_world_position, float u_shadow_bias, sampler2D u_shadowmap) {
+	vec4 proj_pos = u_shadow_vp * vec4(v_world_position, 1.0); //From world to light homogeneous space
+	proj_pos.z -= u_shadow_bias; //real depth stored on the z component
+	proj_pos /= proj_pos.w; // to Clip Space [-1,1]
+
+	float shadow = 1.0;
+
+	vec3 shadow_uv = proj_pos.xyz * 0.5 + 0.5; // to UV coords [0,1], projected depth (z) also changed to UV range
+	float shadowmap_depth = texture(u_shadowmap, shadow_uv.xy).r; // depth-only texture --> only one channel (R)
+	if (shadow_uv.z > shadowmap_depth) {
+		shadow = 0.0; // cast a shadow
+	}
+
+	return shadow;
+}
+
+
 \basic.vs
 
 #version 330 core
@@ -253,6 +272,7 @@ void main()
 
 #version 330 core
 #include "perturbNormal"
+#include "computeShadow"
 
 in vec3 v_position;
 in vec3 v_world_position;
@@ -283,9 +303,10 @@ uniform int u_num_lights;
 //Camera Uniforms:
 uniform vec3 u_camera_pos; // eye of the camera
 
+const int MAX_SHADOWS = 2;
 //Shadows:
-uniform mat4 u_shadow_vp;
-uniform sampler2D u_shadowmap;
+uniform mat4 u_shadow_vps[MAX_SHADOWS];
+uniform sampler2D u_shadowmaps[MAX_SHADOWS];
 uniform float u_shadow_bias;
 
 out vec4 FragColor;
@@ -302,21 +323,9 @@ void main()
 	//common multiple:
 	vec3 k = color.rgb;
 	//variables:
-	float d, attenuation, RV, attenuation_distance, attenuation_angle;
+	float d, attenuation, RV, attenuation_distance, attenuation_angle, shadow;
 	vec3 light_intensity, L, N, R, V, phong, diffuse_light_comp, specular_light_comp, D, L_vec;
 
-//SHADOWS:
-	vec4 proj_pos = u_shadow_vp * vec4(v_world_position, 1.0); //From world to light homogeneous space
-	proj_pos.z -= u_shadow_bias; //real depth stored on the z component
-	proj_pos /= proj_pos.w; // to Clip Space [-1,1]
-
-	float shadow = 1.0;
-
-	vec3 shadow_uv = proj_pos.xyz * 0.5 + 0.5; // to UV coords [0,1], projected depth (z) also changed to UV range
-	float shadowmap_depth = texture(u_shadowmap, shadow_uv.xy).r; // depth-only texture --> only one channel (R)
-	if (shadow_uv.z > shadowmap_depth) {
-		shadow = 0.0; // cast a shadow
-	}	
 
 //AMBIENT:
 	phong = u_ambient_light * k;
@@ -329,6 +338,8 @@ void main()
 	for(int i = 0; i<MAX_LIGHTS; i++) {
 		
 		if (i < u_num_lights) {
+	//SHADOWS:
+			shadow = computeShadow(u_shadow_vps[i], v_world_position, u_shadow_bias, u_shadowmaps[i]);
 	//POINT LIGHT
 			if (u_light_type[i]==1){
 			//Attenuated light intensity:
@@ -352,7 +363,7 @@ void main()
 	//DIRECTIONAL LIGHT
 			else if (u_light_type[i]==3){
 			//NO attenuations in light intensity:
-				light_intensity = u_light_color[i]; // differences in attenuation are negligible in our scene
+				light_intensity = u_light_color[i] * u_intensity[i] ; // differences in attenuation are negligible in our scene
 
 			//DIFFUSE:
 				L = normalize(-u_light_front[i]); // all light rays are parallel, negation because we need the vector to point the light source! 
@@ -395,7 +406,7 @@ void main()
 				RV = clamp(dot(R,V), 0.0, 1.0);
 				specular_light_comp = pow(RV, u_shininess) * light_intensity;
 				
-				phong += k*(diffuse_light_comp + specular_light_comp);
+				phong += k*shadow*(diffuse_light_comp + specular_light_comp);
 
 			}
 		}	

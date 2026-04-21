@@ -5,6 +5,7 @@
 #include "light.h"
 
 #define MAX_LIGHTS 5
+#define MAX_SHADOWS 2
 
 //forward declarations
 class Camera;
@@ -69,14 +70,12 @@ namespace SCN {
 		SCN::Material* selected_material = nullptr; //creo una variable per guardar el material actual. 
 
 		//shadow-maps
-		GFX::Texture* shadow_map = nullptr;
-		GFX::FBO* shadow_fbo = nullptr; //Buffer que es crea a la memòria de la GPU. Guarda el que "dibuixa" a una textura. 
+		GFX::Texture* shadow_maps[MAX_SHADOWS];
+		GFX::FBO* shadow_fbos[MAX_SHADOWS];
 		int shadow_map_resolution = 1024;
-		Camera* light_camera;//REMOVE
 		std::vector<Camera*> light_cameras; //To store the camera lights
 		//Arrays to pass as uniforms
-		mat4 light_models[MAX_LIGHTS];
-		Vector3f light_positions[MAX_LIGHTS];
+		mat4 shadow_vps[MAX_SHADOWS]; // viewprojection matrices
 
 		//updated every frame
 		Renderer(const char* shaders_atlas_filename );

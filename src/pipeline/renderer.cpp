@@ -37,15 +37,19 @@ Renderer::Renderer(const char* shader_atlas_filename)
 	sphere.createSphere(1.0f); // Generates sphere vertices
 	sphere.uploadToVRAM(); // Uploads to GPU memory
 
-	shadow_fbo = new GFX::FBO();	
-	shadow_fbo->setDepthOnly(shadow_map_resolution,shadow_map_resolution);
-	shadow_map = shadow_fbo->depth_texture;
-	light_camera = new Camera();
+	for (int i = 0; i < MAX_SHADOWS; i++) {
+		shadow_fbos[i] = new GFX::FBO();
+		shadow_fbos[i]->setDepthOnly(shadow_map_resolution, shadow_map_resolution);
+		shadow_maps[i] = shadow_fbos[i]->depth_texture;
+	}	
 }
 
 Renderer::~Renderer() {
-	if (shadow_fbo) delete shadow_fbo;
-	if (light_camera) delete light_camera;
+	for (int i = 0; i < MAX_SHADOWS; i++) {
+		if (shadow_fbos[i]) {
+			delete shadow_fbos[i];
+		}
+	}
 }
 
 void Renderer::setupScene()
@@ -154,6 +158,7 @@ void Renderer::fillLightArrays(Vector3f* light_pos, Vector3f* light_color, float
 void Renderer::createLightCameras(Camera* camera) 
 {
 	for (int i = 0; i < lights.size(); i++) {
+
 		if (lights[i]->light_type != POINT) {
 			mat4 light_model = lights[i]->root.getGlobalMatrix(); // Model matrix of the light
 			vec3 light_position = light_model.getTranslation(); // Position
@@ -168,6 +173,7 @@ void Renderer::createLightCameras(Camera* camera)
 
 			light_cameras.push_back(light_camera);
 
+			shadow_vps[i] = light_camera->viewprojection_matrix;
 		}
 		
 	}
@@ -180,24 +186,28 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 
 	parseSceneEntities(scene, camera); // fill the render list
 
-//SHADOW MAP:
-	shadow_fbo->bind(); //Activem el nostre FBO de profunditat. 
-	glColorMask(false, false, false, false); // Disable writing to color
-	glClear(GL_DEPTH_BUFFER_BIT); //Clear depth buffer from prev frame
+	createLightCameras(camera); //Configure the light camera:
 
-	//Configure the light camera:
-	createLightCameras(camera);
-	
-	//Render the mesh meshes with the light_camera:
-	for (sRenderable call : opaque_list) {
-		if (isInsideFrustum(&call, light_camera) != CLIP_OUTSIDE) {
-			renderPlain(light_cameras[1], call.model, call.mesh, call.material);
+//SHADOW MAP:
+	glColorMask(false, false, false, false); // Disable writing to color
+
+	for (int i = 0; i < light_cameras.size(); i++) {
+		if (i < MAX_SHADOWS) {
+			shadow_fbos[i]->bind(); //Activem el nostre FBO de profunditat. 
+			glClear(GL_DEPTH_BUFFER_BIT); //Clear depth buffer from prev frame
+
+			//Render the scene from the lights point of view --> fill the depth buffer
+			for (sRenderable call : opaque_list) {
+				if (isInsideFrustum(&call, light_cameras[i]) != CLIP_OUTSIDE) {
+					renderPlain(light_cameras[i], call.model, call.mesh, call.material);
+				}
+			}
+			shadow_fbos[i]->unbind();
 		}
 	}
-
+ 	
 	glColorMask(true, true, true, true); // Enable writing to color
 
-	shadow_fbo->unbind();
 
 	//set the clear color (the background color)
 	glClearColor(scene->background_color.x, scene->background_color.y, scene->background_color.z, 1.0);
@@ -233,11 +243,11 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 
 	// render opaque list
 	for (sRenderable call : opaque_list) {
-		if (isInsideFrustum(&call, camera) != CLIP_OUTSIDE) renderMeshWithMaterial(light_camera, call.model, call.mesh, call.material); // inside frustum -> render
+		if (isInsideFrustum(&call, camera) != CLIP_OUTSIDE) renderMeshWithMaterial(light_cameras[1], call.model, call.mesh, call.material); // inside frustum -> render
 	}
 	// render translucent list
 	for (sRenderable call : translucent_list) {
-		if (isInsideFrustum(&call, camera) != CLIP_OUTSIDE) renderMeshWithMaterial(light_camera, call.model, call.mesh, call.material);
+		if (isInsideFrustum(&call, camera) != CLIP_OUTSIDE) renderMeshWithMaterial(light_cameras[1], call.model, call.mesh, call.material);
 	}
 
 }
@@ -332,9 +342,11 @@ void Renderer::renderMeshWithMaterial(Camera* light_cam, const Matrix44 model, G
 	shader->setUniform2Array("u_light_cone", (float*)&light_cone, MAX_LIGHTS);
 	shader->setUniform("u_num_lights", (int)light_list.size());
 	shader->setUniform("u_shininess", this->shininess);
-	shader->setUniform("u_shadow_vp", light_cam->viewprojection_matrix);
 	shader->setUniform("u_shadow_bias", 0.0001f);
-	shader->setUniform("u_shadowmap", shadow_fbo->depth_texture, 2);
+	shader->setUniform("u_shadowmaps[0]", shadow_fbos[0]->depth_texture, 2);
+	shader->setUniform("u_shadowmaps[1]", shadow_fbos[1]->depth_texture, 3);
+	shader->setMatrix44Array("u_shadow_vps", shadow_vps, MAX_SHADOWS);
+
 
 	// Render just the verticies as a wireframe
 	if (render_wireframe)

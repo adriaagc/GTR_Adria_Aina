@@ -110,8 +110,5 @@ void Material::bind(GFX::Shader* shader) {
 		// This is used to say which is the alpha threshold to what we should not paint a pixel on the screen (to cut polygons according to texture alpha)
 		shader->setUniform("u_alpha_cutoff", alpha_mode == SCN::eAlphaMode::MASK ? alpha_cutoff : 0.001f);
 
-		////Pass the shininess exponent
-		//shader->setUniform("u_shininess", shininess);
-		//std::cout << shininess;
 	}
 }
