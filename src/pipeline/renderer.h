@@ -32,7 +32,6 @@ namespace SCN {
 			Matrix44 model; //where we want to render it
 		};
 
-		//std::vector<sRenderable> render_list; // collect everything to render and render it in a loop
 		std::vector<sRenderable> opaque_list;
 		std::vector<sRenderable> translucent_list;
 
@@ -49,6 +48,7 @@ namespace SCN {
 		std::vector<sLight> light_list;
 		std::vector<LightEntity*> lights;
 
+		//Arrays to pass as uniforms
 		Vector3f light_pos[MAX_LIGHTS];
 		Vector3f light_color[MAX_LIGHTS];
 		Vector3f light_front[MAX_LIGHTS];
@@ -56,6 +56,7 @@ namespace SCN {
 		float light_intensity[MAX_LIGHTS];
 		Vector2f light_cone[MAX_LIGHTS];
 
+		//ImGui
 		bool render_wireframe;
 		bool render_boundaries;
 		bool isMultipass = false;
@@ -71,8 +72,11 @@ namespace SCN {
 		GFX::Texture* shadow_map = nullptr;
 		GFX::FBO* shadow_fbo = nullptr; //Buffer que es crea a la memòria de la GPU. Guarda el que "dibuixa" a una textura. 
 		int shadow_map_resolution = 1024;
-		Camera* light_camera;
+		Camera* light_camera;//REMOVE
 		std::vector<Camera*> light_cameras; //To store the camera lights
+		//Arrays to pass as uniforms
+		mat4 light_models[MAX_LIGHTS];
+		Vector3f light_positions[MAX_LIGHTS];
 
 		//updated every frame
 		Renderer(const char* shaders_atlas_filename );
@@ -105,6 +109,8 @@ namespace SCN {
 		void fillLightArrays(Vector3f* light_pos, Vector3f* light_color, float* light_intensity, Vector3f* light_font, int* light_type, Vector2f* ligh_cone);
 
 		void renderPlain(Camera* light_cam, const Matrix44 model, GFX::Mesh* mesh, SCN::Material* material);
+
+		void createLightCameras(Camera* camera);
 
 		void showUI();
 	};

@@ -151,6 +151,28 @@ void Renderer::fillLightArrays(Vector3f* light_pos, Vector3f* light_color, float
 	}
 }
 
+void Renderer::createLightCameras(Camera* camera) 
+{
+	for (int i = 0; i < lights.size(); i++) {
+		if (lights[i]->light_type != POINT) {
+			mat4 light_model = lights[i]->root.getGlobalMatrix(); // Model matrix of the light
+			vec3 light_position = light_model.getTranslation(); // Position
+			Camera* light_camera = new Camera();
+			light_camera->lookAt(light_position, light_model * vec3(0.0f, 0.0f, -1.0f), vec3(0.0f, 1.0f, 0.0f));
+			//light_pos: eye of the camera, light_model * vec3: direction of the camera, 	//up: which way is up
+			float half_size = lights[i]->area / 2.0f; //half of the width of the world that the light covers
+			if (lights[i]->light_type == DIRECTIONAL) {
+				light_camera->setOrthographic(-half_size, half_size, -half_size, half_size, lights[i]->near_distance, lights[i]->max_distance);
+			}
+			else light_camera->setPerspective(camera->fov, camera->aspect, camera->near_plane, camera->far_plane);
+
+			light_cameras.push_back(light_camera);
+
+		}
+		
+	}
+}
+
 void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 {
 	this->scene = scene;
@@ -164,18 +186,12 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 	glClear(GL_DEPTH_BUFFER_BIT); //Clear depth buffer from prev frame
 
 	//Configure the light camera:
-	LightEntity* light = lights[3]; //directional light to cast shadows. 
-	mat4 light_model = light->root.getGlobalMatrix(); // Model matrix of the light
-	vec3 light_position = light_model.getTranslation(); // Position
-	light_camera->lookAt(light_position, light_model * vec3(0.0f, 0.0f, -1.0f), vec3(0.0f, 1.0f, 0.0f));
-	//light_pos: eye of the camera, light_model * vec3: direction of the camera, 	//up: which way is up
-	float half_size = light->area / 2.0f; //half of the width of the world that the light covers
-	light_camera->setOrthographic(-half_size, half_size, -half_size, half_size, light->near_distance, light->max_distance); //directional light -> orthographic
+	createLightCameras(camera);
 	
 	//Render the mesh meshes with the light_camera:
 	for (sRenderable call : opaque_list) {
 		if (isInsideFrustum(&call, light_camera) != CLIP_OUTSIDE) {
-			renderPlain(light_camera, call.model, call.mesh, call.material);
+			renderPlain(light_cameras[1], call.model, call.mesh, call.material);
 		}
 	}
 
