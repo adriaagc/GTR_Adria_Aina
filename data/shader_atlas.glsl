@@ -283,6 +283,11 @@ uniform int u_num_lights;
 //Camera Uniforms:
 uniform vec3 u_camera_pos; // eye of the camera
 
+//Shadows:
+uniform mat4 u_shadow_vp;
+uniform sampler2D u_shadowmap;
+uniform float u_shadow_bias;
+
 out vec4 FragColor;
 
 void main()
@@ -299,6 +304,19 @@ void main()
 	//variables:
 	float d, attenuation, RV, attenuation_distance, attenuation_angle;
 	vec3 light_intensity, L, N, R, V, phong, diffuse_light_comp, specular_light_comp, D, L_vec;
+
+//SHADOWS:
+	vec4 proj_pos = u_shadow_vp * vec4(v_world_position, 1.0); //From world to light homogeneous space
+	proj_pos.z -= u_shadow_bias; //real depth stored on the z component
+	proj_pos /= proj_pos.w; // to Clip Space [-1,1]
+
+	float shadow = 1.0;
+
+	vec3 shadow_uv = proj_pos.xyz * 0.5 + 0.5; // to UV coords [0,1], projected depth (z) also changed to UV range
+	float shadowmap_depth = texture(u_shadowmap, shadow_uv.xy).r; // depth-only texture --> only one channel (R)
+	if (shadow_uv.z > shadowmap_depth) {
+		shadow = 0.0; // cast a shadow
+	}	
 
 //AMBIENT:
 	phong = u_ambient_light * k;
@@ -329,6 +347,7 @@ void main()
 				specular_light_comp = pow(RV, u_shininess) * light_intensity;
 
 				phong += k*(diffuse_light_comp + specular_light_comp);
+
 			}
 	//DIRECTIONAL LIGHT
 			else if (u_light_type[i]==3){
@@ -343,8 +362,9 @@ void main()
 				R = reflect(L,N);
 				RV = clamp(dot(R,V), 0.0, 1.0);
 				specular_light_comp = pow(RV, u_shininess) * light_intensity;
+			
+				phong += k*shadow*(diffuse_light_comp + specular_light_comp);
 
-				phong += k*(diffuse_light_comp + specular_light_comp);
 			}
 	//SPOT LIGHT
 			else{ //like the pointlight but with a different attenuation. 
@@ -374,8 +394,9 @@ void main()
 				R = reflect(L,N);
 				RV = clamp(dot(R,V), 0.0, 1.0);
 				specular_light_comp = pow(RV, u_shininess) * light_intensity;
-
+				
 				phong += k*(diffuse_light_comp + specular_light_comp);
+
 			}
 		}	
 	}
@@ -399,6 +420,6 @@ void main()
 	vec4 color = texture(u_texture, v_uv);
 	if(color.a < u_alpha_cutoff)
 		discard;
-		
+	
 	FragColor = vec4(0.0, 0.0, 0.0, 1.0); // since glColorMask->false, any color wil be discarded
 }

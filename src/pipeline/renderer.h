@@ -72,6 +72,7 @@ namespace SCN {
 		GFX::FBO* shadow_fbo = nullptr; //Buffer que es crea a la memòria de la GPU. Guarda el que "dibuixa" a una textura. 
 		int shadow_map_resolution = 1024;
 		Camera* light_camera;
+		std::vector<Camera*> light_cameras; //To store the camera lights
 
 		//updated every frame
 		Renderer(const char* shaders_atlas_filename );
@@ -98,7 +99,7 @@ namespace SCN {
 		//void renderSkybox(GFX::Texture* cubemap);
 
 		//to render one mesh given its material and transformation matrix
-		void renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN::Material* material);
+		void renderMeshWithMaterial(Camera* light_cam, const Matrix44 model, GFX::Mesh* mesh, SCN::Material* material);
 
 		//to render lights
 		void fillLightArrays(Vector3f* light_pos, Vector3f* light_color, float* light_intensity, Vector3f* light_font, int* light_type, Vector2f* ligh_cone);

@@ -91,6 +91,7 @@ void Renderer::parseSceneEntities(SCN::Scene* scene, Camera* cam) {
 	translucent_list.clear();
 	light_list.clear();
 	lights.clear();
+	light_cameras.clear();
 
 	for (int i = 0; i < scene->entities.size(); i++) {
 		BaseEntity* entity = scene->entities[i];
@@ -216,11 +217,11 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 
 	// render opaque list
 	for (sRenderable call : opaque_list) {
-		if (isInsideFrustum(&call, camera) != CLIP_OUTSIDE) renderMeshWithMaterial(call.model, call.mesh, call.material); // inside frustum -> render
+		if (isInsideFrustum(&call, camera) != CLIP_OUTSIDE) renderMeshWithMaterial(light_camera, call.model, call.mesh, call.material); // inside frustum -> render
 	}
 	// render translucent list
 	for (sRenderable call : translucent_list) {
-		if (isInsideFrustum(&call, camera) != CLIP_OUTSIDE) renderMeshWithMaterial(call.model, call.mesh, call.material);
+		if (isInsideFrustum(&call, camera) != CLIP_OUTSIDE) renderMeshWithMaterial(light_camera, call.model, call.mesh, call.material);
 	}
 
 }
@@ -266,7 +267,7 @@ void Renderer::renderSkybox(GFX::Texture* cubemap)
 }
 
 // Renders a mesh given its transform and material
-void Renderer::renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN::Material* material)
+void Renderer::renderMeshWithMaterial(Camera* light_cam, const Matrix44 model, GFX::Mesh* mesh, SCN::Material* material)
 {
 	//in case there is nothing to do
 	if (!mesh || !mesh->getNumVertices() || !material )
@@ -307,8 +308,6 @@ void Renderer::renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN
 
 	//Uniforms Light
 	shader->setUniform("u_ambient_light", scene->ambient_light);
-	
-
 	shader->setUniform3Array("u_light_pos", (float*)&light_pos, MAX_LIGHTS); //enviem al shader la posició de memoria de la primera posició de les llums i quantes llums hi ha com a màxim.
 	shader->setUniform1Array("u_intensity", (float*)light_intensity, MAX_LIGHTS);
 	shader->setUniform3Array("u_light_color", (float*)&light_color, MAX_LIGHTS);
@@ -317,6 +316,9 @@ void Renderer::renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN
 	shader->setUniform2Array("u_light_cone", (float*)&light_cone, MAX_LIGHTS);
 	shader->setUniform("u_num_lights", (int)light_list.size());
 	shader->setUniform("u_shininess", this->shininess);
+	shader->setUniform("u_shadow_vp", light_cam->viewprojection_matrix);
+	shader->setUniform("u_shadow_bias", 0.0001f);
+	shader->setUniform("u_shadowmap", shadow_fbo->depth_texture, 2);
 
 	// Render just the verticies as a wireframe
 	if (render_wireframe)
