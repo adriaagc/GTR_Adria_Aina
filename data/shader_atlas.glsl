@@ -40,7 +40,37 @@ vec3 perturbNormal(vec3 N, vec3 WP, vec2 uv, vec3 normal_pixel)
 
 \computeShadow
 
-float computeShadow(mat4 u_shadow_vp, vec3 v_world_position, float u_shadow_bias, sampler2D u_shadowmap) {
+// float LinearizeDepth(float depth, vec2 camera_nearfar)
+// {
+//     float near = camera_nearfar.x;
+//     float far  = camera_nearfar.y;
+
+//     // Convert from [0,1] depth buffer to NDC [-1,1]
+//     float z = depth * 2.0 - 1.0;
+
+//     // Perspective linearization
+//     return (2.0 * near * far) / (far + near - z * (far - near));
+// }
+
+// float computeShadowSpot(mat4 u_shadow_vp, vec3 v_world_position, float u_shadow_bias, sampler2D u_shadowmap, vec2 camera_nearfar) {
+// 	vec4 proj_pos = u_shadow_vp * vec4(v_world_position, 1.0); //From world to light homogeneous space
+// 	proj_pos.z -= u_shadow_bias; //real depth stored on the z component
+// 	proj_pos /= proj_pos.w; // to Clip Space [-1,1]
+
+// 	vec3 shadow_uv = proj_pos.xyz * 0.5 + 0.5; // to UV coords [0,1], projected depth (z) also changed to UV range
+// 	float shadowmap_depth = texture(u_shadowmap, shadow_uv.xy).r; // depth-only texture --> only one channel (R)
+// 	shadowmap_depth = LinearizeDepth(shadowmap_depth, camera_nearfar) / camera_nearfar.y;
+
+// 	float shadow = 1.0;
+
+// 	if (shadow_uv.z > shadowmap_depth) {
+// 		shadow = 0.0; // cast a shadow
+// 	}
+
+// 	return shadow;
+// }
+
+float computeShadowDirectional(mat4 u_shadow_vp, vec3 v_world_position, float u_shadow_bias, sampler2D u_shadowmap) {
 	vec4 proj_pos = u_shadow_vp * vec4(v_world_position, 1.0); //From world to light homogeneous space
 	proj_pos.z -= u_shadow_bias; //real depth stored on the z component
 	proj_pos /= proj_pos.w; // to Clip Space [-1,1]
@@ -49,11 +79,13 @@ float computeShadow(mat4 u_shadow_vp, vec3 v_world_position, float u_shadow_bias
 
 	vec3 shadow_uv = proj_pos.xyz * 0.5 + 0.5; // to UV coords [0,1], projected depth (z) also changed to UV range
 	float shadowmap_depth = texture(u_shadowmap, shadow_uv.xy).r; // depth-only texture --> only one channel (R)
+
 	if (shadow_uv.z > shadowmap_depth) {
 		shadow = 0.0; // cast a shadow
 	}
 
 	return shadow;
+
 }
 
 
@@ -309,6 +341,8 @@ uniform mat4 u_shadow_vps[MAX_SHADOWS];
 uniform sampler2D u_shadowmaps[MAX_SHADOWS];
 uniform float u_shadow_bias;
 
+uniform vec2 u_camera_nearfar;
+
 out vec4 FragColor;
 
 void main()
@@ -326,6 +360,7 @@ void main()
 	float d, attenuation, RV, attenuation_distance, attenuation_angle, shadow;
 	vec3 light_intensity, L, N, R, V, phong, diffuse_light_comp, specular_light_comp, D, L_vec;
 
+	int s = 0;
 
 //AMBIENT:
 	phong = u_ambient_light * k;
@@ -338,8 +373,7 @@ void main()
 	for(int i = 0; i<MAX_LIGHTS; i++) {
 		
 		if (i < u_num_lights) {
-	//SHADOWS:
-			shadow = computeShadow(u_shadow_vps[i], v_world_position, u_shadow_bias, u_shadowmaps[i]);
+
 	//POINT LIGHT
 			if (u_light_type[i]==1){
 			//Attenuated light intensity:
@@ -373,6 +407,10 @@ void main()
 				R = reflect(L,N);
 				RV = clamp(dot(R,V), 0.0, 1.0);
 				specular_light_comp = pow(RV, u_shininess) * light_intensity;
+
+			//SHADOWS:
+				shadow = computeShadowDirectional(u_shadow_vps[s], v_world_position, u_shadow_bias, u_shadowmaps[s]);
+				s += 1;
 			
 				phong += k*shadow*(diffuse_light_comp + specular_light_comp);
 
@@ -405,9 +443,12 @@ void main()
 				R = reflect(L,N);
 				RV = clamp(dot(R,V), 0.0, 1.0);
 				specular_light_comp = pow(RV, u_shininess) * light_intensity;
-				
-				phong += k*shadow*(diffuse_light_comp + specular_light_comp);
 
+			//SHADOWS:
+				// shadow = computeShadowSpot(u_shadow_vps[s], v_world_position, u_shadow_bias, u_shadowmaps[s], u_camera_nearfar);
+				s += 1;
+				shadow = 1.0; //we are not computing the shadow
+				phong += k*shadow*(diffuse_light_comp + specular_light_comp);
 			}
 		}	
 	}

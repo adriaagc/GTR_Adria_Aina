@@ -157,6 +157,7 @@ void Renderer::fillLightArrays(Vector3f* light_pos, Vector3f* light_color, float
 
 void Renderer::createLightCameras(Camera* camera) 
 {
+	int k = 0;
 	for (int i = 0; i < lights.size(); i++) {
 
 		if (lights[i]->light_type != POINT) {
@@ -169,11 +170,12 @@ void Renderer::createLightCameras(Camera* camera)
 			if (lights[i]->light_type == DIRECTIONAL) {
 				light_camera->setOrthographic(-half_size, half_size, -half_size, half_size, lights[i]->near_distance, lights[i]->max_distance);
 			}
-			else light_camera->setPerspective(camera->fov, camera->aspect, camera->near_plane, camera->far_plane);
+			else light_camera->setPerspective(lights[i]->cone_info.y, 1.0f, lights[i]->max_distance, lights[i]->near_distance); // camera->aspect
 
 			light_cameras.push_back(light_camera);
 
-			shadow_vps[i] = light_camera->viewprojection_matrix;
+			shadow_vps[k] = light_camera->viewprojection_matrix;
+			k += 1;
 		}
 		
 	}
@@ -186,7 +188,7 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 
 	parseSceneEntities(scene, camera); // fill the render list
 
-	createLightCameras(camera); //Configure the light camera:
+	createLightCameras(camera); //Configure the light cameras:
 
 //SHADOW MAP:
 	glColorMask(false, false, false, false); // Disable writing to color
@@ -243,11 +245,11 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 
 	// render opaque list
 	for (sRenderable call : opaque_list) {
-		if (isInsideFrustum(&call, camera) != CLIP_OUTSIDE) renderMeshWithMaterial(light_cameras[1], call.model, call.mesh, call.material); // inside frustum -> render
+		if (isInsideFrustum(&call, camera) != CLIP_OUTSIDE) renderMeshWithMaterial(call.model, call.mesh, call.material); // inside frustum -> render
 	}
 	// render translucent list
 	for (sRenderable call : translucent_list) {
-		if (isInsideFrustum(&call, camera) != CLIP_OUTSIDE) renderMeshWithMaterial(light_cameras[1], call.model, call.mesh, call.material);
+		if (isInsideFrustum(&call, camera) != CLIP_OUTSIDE) renderMeshWithMaterial(call.model, call.mesh, call.material);
 	}
 
 }
@@ -293,7 +295,7 @@ void Renderer::renderSkybox(GFX::Texture* cubemap)
 }
 
 // Renders a mesh given its transform and material
-void Renderer::renderMeshWithMaterial(Camera* light_cam, const Matrix44 model, GFX::Mesh* mesh, SCN::Material* material)
+void Renderer::renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN::Material* material)
 {
 	//in case there is nothing to do
 	if (!mesh || !mesh->getNumVertices() || !material )
@@ -346,7 +348,8 @@ void Renderer::renderMeshWithMaterial(Camera* light_cam, const Matrix44 model, G
 	shader->setUniform("u_shadowmaps[0]", shadow_fbos[0]->depth_texture, 2);
 	shader->setUniform("u_shadowmaps[1]", shadow_fbos[1]->depth_texture, 3);
 	shader->setMatrix44Array("u_shadow_vps", shadow_vps, MAX_SHADOWS);
-
+	/*Vector2f nearfar = Vector2f(light_cameras[0]->near_plane, light_cameras[0]->far_plane);
+	shader->setUniform2Array("u_camera_nearfar", (float*)&nearfar, 2);*/
 
 	// Render just the verticies as a wireframe
 	if (render_wireframe)
