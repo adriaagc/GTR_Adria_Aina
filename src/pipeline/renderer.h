@@ -1,11 +1,10 @@
-#pragma once // ensures the header file is included only once during compilation, preventing duplicate definitions.
+#pragma once
 #include "scene.h"
 #include "prefab.h"
 
 #include "light.h"
 
-#define MAX_LIGHTS 5
-#define MAX_SHADOWS 2
+#define MAX_LIGHTS 4
 
 //forward declarations
 class Camera;
@@ -27,60 +26,38 @@ namespace SCN {
 	{
 	public:
 
+	//ENTITIES:
 		struct sRenderable {
-			GFX::Mesh* mesh = nullptr; //the thing we want to render
+			GFX::Mesh* mesh = nullptr;
 			Material* material = nullptr;
-			Matrix44 model; //where we want to render it
+			Matrix44 model;
 		};
 
 		std::vector<sRenderable> opaque_list;
 		std::vector<sRenderable> translucent_list;
 
 
-		struct sLight {
-			vec3 color;
-			vec3 pos;
-			float intensity;
-			vec3 front;
-			eLightType l_type;
-			Vector2f cone_info;
-		};
-
-		std::vector<sLight> light_list;
-		std::vector<LightEntity*> lights;
-
-		//Arrays to pass as uniforms
+	//LIGHTS:
+		std::vector<LightEntity*> lights_list;
 		Vector3f light_pos[MAX_LIGHTS];
 		Vector3f light_color[MAX_LIGHTS];
-		Vector3f light_front[MAX_LIGHTS];
 		int light_type[MAX_LIGHTS];
 		float light_intensity[MAX_LIGHTS];
+		Vector3f light_front[MAX_LIGHTS];
 		Vector2f light_cone[MAX_LIGHTS];
 
-		//ImGui
+	//MATERIAL:
+		float shininess = 20.0;
+
 		bool render_wireframe;
 		bool render_boundaries;
-		bool isMultipass = false;
-		float shininess = 20.0;
 
 		GFX::Texture* skybox_cubemap;
 
 		SCN::Scene* scene;
 
-		SCN::Material* selected_material = nullptr; //creo una variable per guardar el material actual. 
-
-		//shadow-maps
-		GFX::Texture* shadow_maps[MAX_SHADOWS];
-		GFX::FBO* shadow_fbos[MAX_SHADOWS];
-		int shadow_map_resolution = 1024;
-		std::vector<Camera*> light_cameras; //To store the camera lights
-		//Arrays to pass as uniforms
-		mat4 shadow_vps[MAX_SHADOWS]; // viewprojection matrices
-
 		//updated every frame
 		Renderer(const char* shaders_atlas_filename );
-		//Destructor
-		~Renderer();
 
 		//just to be sure we have everything ready for the rendering
 		void setupScene();
@@ -88,9 +65,11 @@ namespace SCN {
 		//add here your functions
 		//...
 
-		char isInsideFrustum(sRenderable* obj, Camera* camera); // Tells if the object is inside the frustum or not
-
 		void parseNode(Node* node);
+
+		char isInsideFrustum(sRenderable* obj, Camera* camera);
+
+		void fillLightArrays();
 
 		void parseSceneEntities(SCN::Scene* scene, Camera* camera);
 
@@ -99,17 +78,9 @@ namespace SCN {
 
 		//render the skybox
 		void renderSkybox(GFX::Texture* cubemap);
-		//void renderSkybox(GFX::Texture* cubemap);
 
 		//to render one mesh given its material and transformation matrix
 		void renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN::Material* material);
-
-		//to render lights
-		void fillLightArrays(Vector3f* light_pos, Vector3f* light_color, float* light_intensity, Vector3f* light_font, int* light_type, Vector2f* ligh_cone);
-
-		void renderPlain(Camera* light_cam, const Matrix44 model, GFX::Mesh* mesh, SCN::Material* material);
-
-		void createLightCameras(Camera* camera);
 
 		void showUI();
 	};

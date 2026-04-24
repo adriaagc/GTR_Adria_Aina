@@ -416,7 +416,7 @@ bool BoundingBoxSphereOverlap(const BoundingBox& box, const Vector3f& center, fl
 inline Vector3f reflect(const Vector3f& I, const Vector3f& N) { return I - N * 2.0f * dot(N, I); }
 
 //value between 0 and 1
-inline float random(float range = 1.0f, int offset = 0) { return ((rand() % 1000) / (1000.0f)) * range + offset; }
+inline float random_f(float range = 1.0f, int offset = 0) { return ((rand() % 1000) / (1000.0f)) * range + offset; }
 
 std::ostream& operator << (std::ostream& os, const Vector3f& v);
 std::ostream& operator << (std::ostream& os, const Vector4f& v);

@@ -4,93 +4,98 @@
 	"camera_position":	[-3, 0.89999997615814209, -1.5],
 	"camera_target":	[0, 0.40000000596046448, 0],
 	"camera_fov":	60,
-	"skybox":	"night.hdre",
+	"skybox": "night.hdre",
 	"entities":	[{
+			"type":	"PREFAB",
 			"name":	"floor",
 			"layers":	3,
 			"position":	[0, 0, 0],
 			"scale":	[0.10000000149011612, 0.10000000149011612, 0.10000000149011612],
 			"rotation":	[0, 0, 0, 1],
-			"filename":	"prefabs/road/road.gltf",
-			"type":	"PREFAB"
+			"filename":	"prefabs/road/road.gltf"
 		}, {
+			"type":	"PREFAB",
 			"name":	"floor2",
 			"layers":	3,
 			"position":	[0, 0, 3],
 			"scale":	[0.10000000149011612, 0.10000000149011612, 0.10000000149011612],
 			"rotation":	[0, 0, 0, 1],
-			"filename":	"prefabs/road/road.gltf",
-			"type":	"PREFAB"
+			"filename":	"prefabs/road/road.gltf"
 		}, {
+			"type":	"PREFAB",
 			"name":	"floor3",
 			"layers":	3,
 			"position":	[0, 0, -3],
 			"scale":	[0.10000000149011612, 0.10000000149011612, 0.10000000149011612],
 			"rotation":	[0, 0, 0, 1],
-			"filename":	"prefabs/road/road.gltf",
-			"type":	"PREFAB"
+			"filename":	"prefabs/road/road.gltf"
 		}, {
+			"type":	"PREFAB",
 			"name":	"car1",
 			"layers":	3,
 			"position":	[-0.78710675239562988, 0, -0.92928928136825562],
 			"scale":	[0.00999999977648258, 0.00999999977648258, 0.00999999977648258],
-			"rotation":	[0, 8.08617983238946e-07, 0, 1],
+			"rotation":	[0, 0.0138074457645416, 0, 0.99990469217300415],
 			"filename":	"prefabs/gmc/scene.gltf",
 			"type":	"PREFAB"
 		}, {
+			"type":	"PREFAB",
 			"name":	"car2",
 			"layers":	3,
 			"position":	[-0.0500000007450581, 0, 2.3299999237060547],
 			"scale":	[0.0100000035017729, 0.00999999977648258, 0.0100000035017729],
-			"rotation":	[0, 1, 0, 3.89407205148018e-07],
+			"rotation":	[0, 0.99997788667678833, 0, 0.00664881197735667],
 			"filename":	"prefabs/gmc/scene.gltf",
 			"type":	"PREFAB"
 		}, {
+			"type":	"PREFAB",
 			"name":	"house",
 			"layers":	3,
 			"position":	[3, 0.0799999982118607, 2],
 			"scale":	[0.00400000018998981, 0.00400000018998981, 0.00400000018998981],
 			"rotation":	[0, 0, 0, 1],
-			"filename":	"prefabs/house_test/scene.gltf",
-			"type":	"PREFAB"
+			"filename":	"prefabs/house_test/scene.gltf"
 		}, {
+			"type":	"PREFAB",
 			"name":	"sign",
 			"layers":	3,
 			"position":	[1.1799999475479126, 0.479999989271164, -4],
-			"scale":	[0.600000262260437, 0.59999996423721313, 0.600000262260437],
-			"rotation":	[0, 0.99954390525817871, 0, 0.0301975551992655],
+			"scale":	[0.600000284612179, 0.599999949336052, 0.600000284612179],
+			"rotation":	[0, 0.99884951114654541, 0, 0.0479551218450069],
 			"filename":	"prefabs/sign.glb",
 			"type":	"PREFAB"
 		}, {
+			"type":	"PREFAB",
 			"name":	"house",
 			"layers":	3,
 			"position":	[3, 0.20000000298023224, -2],
 			"scale":	[0.00400000018998981, 0.00400000018998981, 0.00400000018998981],
 			"rotation":	[0, 0, 0, 1],
-			"filename":	"prefabs/house_test/scene.gltf",
-			"type":	"PREFAB"
+			"filename":	"prefabs/house_test/scene.gltf"
 		}, {
+			"type":	"PREFAB",
 			"name":	"trash",
 			"layers":	3,
 			"position":	[1.3999999761581421, 0.10000000149011612, 1.1000000238418579],
 			"scale":	[0.00499999988824129, 0.00499999988824129, 0.00499999988824129],
 			"rotation":	[0, 0, 0, 1],
-			"filename":	"prefabs/trash_can/scene.gltf",
-			"type":	"PREFAB"
+			"filename":	"prefabs/trash_can/scene.gltf"
 		}, {
+			"type":	"PREFAB",
 			"name":	"tree",
 			"layers":	3,
 			"position":	[0.47999969124794, 0.0900000035762787, 3.7400009632110596],
-			"scale":	[1.1123700141906738, 1.1123710870742798, 1.1123700141906738],
-			"rotation":	[-8.44313594733359e-12, 0.86606627702713013, -8.44313421261011e-12, 0.49992910027503967],
+			"scale":	[1.1123702526092529, 1.1123710870742798, 1.1123702526092529],
+			"rotation":	[-7.82176840657955e-12, 0.88628643751144409, -7.82175539615348e-12, 0.4631374180316925],
 			"filename":	"prefabs/tree.glb",
 			"type":	"PREFAB"
 		}, {
+			"type":	"LIGHT",
 			"name":	"spot",
 			"layers":	3,
-			"position":	[-1.0936814546585083, 0.414531260728836, 0.017836906015873],
-			"scale":	[0.0100000081583858, 0.0100001366809011, 0.0100000454112887],
-			"rotation":	[4.12183680964517e-07, -2.98476734315045e-05, 1, 4.12984149988915e-07],
+			"position":	[-0.27960649132728577, 0.433169037103653, 0.0553683079779148],
+			"scale":	[0.0100000100210309, 0.00999999977648258, 0.0100000100210309],
+			"rotation":	[-4.28971027588432e-08, 0.99990469217300415, -4.28971205224116e-08, -0.0138074634596705],
 			"color":	[1, 0.89999997615814209, 0.800000011920929],
 			"intensity":	3.8560161590576172,
 			"max_dist":	10,
@@ -98,12 +103,12 @@
 			"near_dist":	0.10000000149011612,
 			"cone_start":	25,
 			"cone_end":	39.049999237060547,
-			"light_type":	"SPOT",
-			"type":	"LIGHT"
+			"light_type":	"SPOT"
 		}, {
+			"type":	"LIGHT",
 			"name":	"pointlight",
 			"layers":	3,
-			"position":	[-1.1700000762939453, 1.1299999952316284, -2.0099999904632568],
+			"position":	[-1.8700000047683716, 0.37999999523162842, -1.559999942779541],
 			"scale":	[1, 1, 1],
 			"rotation":	[0, 0, 0, 1],
 			"color":	[1, 0.20000000298023224, 0.10000000149011612],
@@ -111,12 +116,12 @@
 			"max_dist":	70,
 			"cast_shadows":	false,
 			"near_dist":	0.10000000149011612,
-			"light_type":	"POINT",
-			"type":	"LIGHT"
+			"light_type":	"POINT"
 		}, {
+			"type":	"LIGHT",
 			"name":	"pointlight2",
 			"layers":	3,
-			"position":	[-0.45999997854232788, 1.0299999713897705, -3.3000001907348633],
+			"position":	[-1.309999942779541, 0.37999999523162842, -2.0499999523162842],
 			"scale":	[1, 1, 1],
 			"rotation":	[0, 0, 0, 1],
 			"color":	[1, 0.20000000298023224, 0.10000000149011612],
@@ -124,16 +129,16 @@
 			"max_dist":	70,
 			"cast_shadows":	false,
 			"near_dist":	0.10000000149011612,
-			"light_type":	"POINT",
-			"type":	"LIGHT"
+			"light_type":	"POINT"
 		}, {
+			"type":	"LIGHT",
 			"name":	"moonlight",
 			"layers":	3,
 			"position":	[1.5, 3, 0.5],
 			"scale":	[1.0000004768371582, 0.99999725818634033, 1.0000002384185791],
-			"rotation":	[-0.35411807894706726, 0.496724158525467, 0.23217254877090454, 0.7576025128364563],
+			"rotation":	[-0.35411807894706726, 0.49672260880470276, 0.232173964381218, 0.75760304927825928],
 			"color":	[0.10000000149011612, 0.20000000298023224, 0.40000000596046448],
-			"intensity":	5.5322260856628418,
+			"intensity":	5.53222607421875,
 			"max_dist":	40,
 			"cast_shadows":	true,
 			"near_dist":	-5,

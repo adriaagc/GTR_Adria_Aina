@@ -174,41 +174,6 @@ void Application::onMouseButtonDown( SDL_MouseButtonEvent event )
 		SDL_SetRelativeMouseMode(!mouse_locked);
 		SDL_ShowCursor();
 	}
-	//if (event.button == SDL_BUTTON_LEFT) {
-	//	Vector2ui window_size = CORE::getWindowSize();
-	//	Vector3f ray_origin, ray_direction;
-
-	//	// 1. Calculem el raig (el que hem arreglat abans)
-	//	ray_direction = camera->getRayDirection(event.x, event.y, (float)window_size.x, (float)window_size.y);
-	//	ray_origin = camera->eye;
-
-	//	SCN::BaseEntity* closest_entity = nullptr;
-	//	float min_dist = 1e10;
-
-	//	for (auto ent : scene->entities) {
-	//		if (ent->root.mesh) {
-	//			Vector3f collision_point; // On guardarem on ha tocat
-	//			Vector3f normal;          // On guardarem la normal (encara que no la fem servir)
-
-	//			// 2. Cridem la funció que has trobat
-	//			// Nota: ent->root.model és la matriu de transformació de l'entitat
-	//			if (ent->root.mesh->testRayCollision(ent->root.model, ray_origin, ray_direction, collision_point, normal)) {
-
-	//				// 3. Calculem la distància per saber quin és el més proper
-	//				float dist = (collision_point - ray_origin).length();
-	//				if (dist < min_dist) {
-	//					min_dist = dist;
-	//					closest_entity = ent;
-	//				}
-	//			}
-	//		}
-	//	}
-
-	//	// 4. Seleccionem el material
-	//	if (closest_entity) {
-	//		renderer->selected_material = closest_entity->root.material;
-	//	}
-	//}
 }
 
 void Application::onMouseButtonUp(SDL_MouseButtonEvent event)

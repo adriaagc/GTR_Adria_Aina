@@ -81,7 +81,6 @@ void Material::bind(GFX::Shader* shader) {
 	// Bind the textures and set uniforms =======================
 	{
 		GFX::Texture* texture = textures[SCN::eTextureChannel::ALBEDO].texture;
-		GFX::Texture* normalmap_texture = textures[SCN::eTextureChannel::NORMALMAP].texture;
 
 		// HERE =====================
 		// TODO: Expand rfor the rest of materials (when you need to)
@@ -100,15 +99,7 @@ void Material::bind(GFX::Shader* shader) {
 		if (texture)
 			shader->setUniform("u_texture", texture, 0);
 
-		if (normalmap_texture == NULL) {
-			normalmap_texture = GFX::Texture::getWhiteTexture();
-		}
-
-		if (normalmap_texture)
-			shader->setUniform("u_normalmap", normalmap_texture, 1);
-
 		// This is used to say which is the alpha threshold to what we should not paint a pixel on the screen (to cut polygons according to texture alpha)
 		shader->setUniform("u_alpha_cutoff", alpha_mode == SCN::eAlphaMode::MASK ? alpha_cutoff : 0.001f);
-
 	}
 }

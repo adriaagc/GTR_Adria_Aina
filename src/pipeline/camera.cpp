@@ -281,7 +281,7 @@ void Camera::extractFrustum()
 	frustum[5][3] /= t;
 }
 
-bool Camera::testPointInFrustum( Vector3f v ) // check if a point is inside the frustum.
+bool Camera::testPointInFrustum( Vector3f v )
 {
 	for (int p = 0; p < 6; p++)
 		if (frustum[p][0] * v.x + frustum[p][1] * v.y + frustum[p][2] * v.z + frustum[p][3] <= 0)
@@ -340,7 +340,7 @@ char Camera::testBoxInFrustum(const Vector3f& center, const Vector3f& halfsize)
 {
 	int flag = 0, o = 0;
 
-	flag = planeBoxOverlap((Vector4f&)frustum[0], center, halfsize );
+	flag = planeBoxOverlap( (Vector4f&)frustum[0], center,halfsize );
 	if (flag == CLIP_OUTSIDE)
 		return CLIP_OUTSIDE;
 	o += flag;
@@ -364,6 +364,6 @@ char Camera::testBoxInFrustum(const Vector3f& center, const Vector3f& halfsize)
 	if (flag == CLIP_OUTSIDE)
 		return CLIP_OUTSIDE;
 	o += flag;
-	return o == 12 ? CLIP_INSIDE : CLIP_OVERLAP; // CLIP_INSIDE = 2. Therefore, if all 6 planes are inside the sum will be 12 otherwise the object is overlaped
+	return o == 0 ? CLIP_INSIDE : CLIP_OVERLAP;
 }
 
