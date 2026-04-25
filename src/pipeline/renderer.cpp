@@ -36,6 +36,19 @@ Renderer::Renderer(const char* shader_atlas_filename)
 
 	sphere.createSphere(1.0f);
 	sphere.uploadToVRAM();
+
+	fbo = new GFX::FBO();
+	fbo->setDepthOnly(SHADOW_RES, SHADOW_RES);
+
+}
+
+Renderer::~Renderer() {
+	/*for (int i = 0; i < MAX_SHADOWS; i++) {
+		if (shadow_fbos[i]) {
+			delete shadow_fbos[i];
+		}
+	}*/
+	if (fbo) delete fbo;
 }
 
 void Renderer::setupScene()
@@ -152,10 +165,26 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 	if(skybox_cubemap)
 		renderSkybox(skybox_cubemap);
 
+//SHADOW MAPS:
+	Camera light_camera;
+	mat4 light_model = lights_list[3]->root.getGlobalMatrix();
+	vec3 light_pos = light_model.getTranslation();
+	light_camera.lookAt(light_pos, light_model * vec3(0.0f, 0.0f, -1.0f), vec3(0.0f, 1.0f, 0.0f));
+	float half_size = lights_list[3]->area / 2.0f;
+	light_camera.setOrthographic(-half_size, half_size, -half_size, half_size, lights_list[3]->near_distance, lights_list[3]->max_distance);
+	dir_cam = &light_camera;
+
+	fbo->bind();
+	glColorMask(false, false, false, false);
+	glClear(GL_DEPTH_BUFFER_BIT);
+	for (sRenderable& call : opaque_list) {
+		if (isInsideFrustum(&call, dir_cam) != CLIP_OUTSIDE) renderPlain(dir_cam, call.model, call.mesh, call.material);
+	}
+	glColorMask(true, true, true, true);
+	fbo->unbind();
 
 //PREAPARE LIGHT UNIFORMS:
 	fillLightArrays(); //to fill the arrays containing light info
-
 
 //RENDER ENTITIES:
 
@@ -181,6 +210,55 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 		if (isInsideFrustum(&call, camera) != CLIP_OUTSIDE) renderMeshWithMaterial(call.model, call.mesh, call.material);
 	}
 
+}
+
+void Renderer::renderPlain(Camera* light_cam, const Matrix44 model, GFX::Mesh* mesh, SCN::Material* material) 
+{
+	//in case there is nothing to do
+	if (!mesh || !mesh->getNumVertices() || !material)
+		return;
+	assert(glGetError() == GL_NO_ERROR);
+
+	//define locals to simplify coding
+	GFX::Shader* shader = NULL;
+
+	glEnable(GL_DEPTH_TEST);
+
+	//chose a shader
+	shader = GFX::Shader::Get("plain");
+
+	assert(glGetError() == GL_NO_ERROR);
+
+	//no shader? then nothing to render
+	if (!shader)
+		return;
+
+	shader->enable();
+
+	glEnable(GL_CULL_FACE);
+	glFrontFace(GL_CW);
+
+	material->bind(shader);
+
+	shader->setUniform("u_camera_pos", light_cam->eye);
+	shader->setUniform("u_model", model);
+	shader->setUniform("u_viewprojection", light_cam->viewprojection_matrix);
+
+	// Render just the verticies as a wireframe
+	if (render_wireframe)
+		glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+
+	//do the draw call that renders the mesh into the screen
+	mesh->render(GL_TRIANGLES);
+
+	//disable shader
+	shader->disable();
+
+	//set the render state as it was before to avoid problems with future renders
+	glDisable(GL_BLEND);
+	glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+	glDisable(GL_CULL_FACE);
+	glFrontFace(GL_CCW);
 }
 
 
@@ -274,6 +352,11 @@ void Renderer::renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN
 	shader->setUniform3Array("u_light_front", (float*)light_front, MAX_LIGHTS);
 	shader->setUniform2Array("u_light_cone", (float*)light_cone, MAX_LIGHTS);
 
+	// Upload shadowmap uniform
+	//fbo->depth_texture->toViewport();
+	shader->setUniform("u_shadowmap", fbo->depth_texture, 2);
+	shader->setUniform("u_shadow_vp", dir_cam->viewprojection_matrix);
+	shader->setUniform("u_shadow_bias", shadow_bias);
 
 	// Render just the verticies as a wireframe
 	if (render_wireframe)
@@ -301,6 +384,8 @@ void Renderer::showUI()
 	//add here your stuff
 	//...
 	ImGui::SliderFloat("Shininess", &shininess, 0.0f, 100.0f);
+	//ImGui::SliderFloat("ShadowBias", &shadow_bias, 0.0001f, 0.001f);
+
 }
 
 #else

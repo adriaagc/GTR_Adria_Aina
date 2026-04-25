@@ -5,6 +5,7 @@
 #include "light.h"
 
 #define MAX_LIGHTS 4
+#define SHADOW_RES 1024
 
 //forward declarations
 class Camera;
@@ -46,11 +47,17 @@ namespace SCN {
 		Vector3f light_front[MAX_LIGHTS];
 		Vector2f light_cone[MAX_LIGHTS];
 
-	//MATERIAL:
+	//ImGui:
 		float shininess = 20.0;
+		float shadow_bias = 0.0001;
 
 		bool render_wireframe;
 		bool render_boundaries;
+
+	//FBOs & shadowmaps
+		GFX::FBO* fbo;
+		Camera* dir_cam;
+
 
 		GFX::Texture* skybox_cubemap;
 
@@ -58,6 +65,7 @@ namespace SCN {
 
 		//updated every frame
 		Renderer(const char* shaders_atlas_filename );
+		~Renderer();
 
 		//just to be sure we have everything ready for the rendering
 		void setupScene();
@@ -81,6 +89,9 @@ namespace SCN {
 
 		//to render one mesh given its material and transformation matrix
 		void renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN::Material* material);
+
+		//to fill the framebuffer without drawing from the perspective of the light
+		void renderPlain(Camera* light_cam, const Matrix44 model, GFX::Mesh* mesh, SCN::Material* material);
 
 		void showUI();
 	};

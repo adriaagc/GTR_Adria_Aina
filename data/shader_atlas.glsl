@@ -5,6 +5,7 @@ skybox basic.vs skybox.fs
 depth quad.vs depth.fs
 multi basic.vs multi.fs
 phong basic.vs phong.fs
+plain basic.vs plain.fs
 
 \perturbNormal
 
@@ -35,6 +36,25 @@ vec3 perturbNormal(vec3 N, vec3 WP, vec2 uv, vec3 normal_pixel)
 	mat3 TBN = cotangent_frame(N, WP, uv);
 	return normalize(TBN * normal_pixel);
 }
+
+\computeShadow
+
+float isShadow(mat4 u_shadow_vp, vec3 v_world_position, sampler2D u_shadowmap, float u_shadow_bias) 
+{
+	vec4 proj_pos = u_shadow_vp * vec4(v_world_position, 1.0);
+	proj_pos.z -= u_shadow_bias;
+	proj_pos /= proj_pos.w; //normalize [-1,1]
+	proj_pos = proj_pos * 0.5 + 0.5;
+	float map_depth = texture(u_shadowmap, proj_pos.xy).r;
+	float shadow = 1.0;
+	if (proj_pos.z > map_depth){
+		shadow = 0.0;
+	}
+
+	return shadow;
+}
+
+
 
 \basic.vs
 
@@ -251,6 +271,7 @@ void main()
 
 #version 330 core
 #include "perturbNormal"
+#include "computeShadow"
 
 //From basic.vs:
 in vec3 v_position;
@@ -278,10 +299,15 @@ uniform int u_light_type[MAX_LIGHTS];
 uniform vec3 u_light_front[MAX_LIGHTS];
 uniform vec2 u_light_cone[MAX_LIGHTS];
 
+uniform sampler2D u_shadowmap;
+uniform mat4 u_shadow_vp;
+uniform float u_shadow_bias;
+
 //From material->bind:
 uniform vec4 u_color; //color of the material
 uniform sampler2D u_texture; //object's texture
 uniform float u_alpha_cutoff; //threshold to decide wheter to paint or not 
+uniform sampler2D u_normalmap;
 
 out vec4 FragColor;
 
@@ -289,23 +315,26 @@ void main()
 {
 
 	vec4 color = u_color;
-
 	color *= texture(u_texture, v_uv);
-
 	if (color.a < u_alpha_cutoff) 
 		discard;
 
 	vec3 k = color.rgb; //k = k_a = k_s = k_d
 
+//VARIABLES TO BE USED:
+	vec3 L_vec, L, N, light_intensity, diffuse_contrib, R, V, specular_contrib, D;
+	float d, attenuation, RV, LD, alpha_max, alpha_min, attenuation_distance, attenuation_angle, shadow;
+
 //AMBIENT LIGHT:
 	vec3 phong = u_ambient_light * k;
 
+//NORMALS WITH NORMALMAPS:
+	vec3 nm_color = normalize((texture(u_normalmap, v_uv).xyz * 2.0) - 1.0); //color sampled from the normalmap converted to a range [-1,1]
+	N = perturbNormal(normalize(v_normal), v_world_position, v_uv, nm_color);
+
 	vec3 diffuse = vec3(0.0);
 	vec3 specular = vec3(0.0);
-
-	vec3 L_vec, L, N, light_intensity, diffuse_contrib, R, V, specular_contrib, D;
-	float d, attenuation, RV, LD, alpha_max, alpha_min, attenuation_distance, attenuation_angle;
-
+	
 	for(int i = 0; i<MAX_LIGHTS; i++) {
 		if (i < u_num_lights) {
 		
@@ -314,7 +343,6 @@ void main()
 			//DIFFUSE:
 				L_vec = u_light_pos[i] - v_world_position;
 				L = normalize(L_vec);
-				N = normalize(v_normal);
 				d = length(L_vec);
 				attenuation = u_intensity[i]/pow(d,2);
 				light_intensity = attenuation * u_light_color[i];
@@ -333,19 +361,21 @@ void main()
 			else if (u_light_type[i] == 3) {
 			//There is no attenuation:
 				light_intensity = u_intensity[i] * u_light_color[i];
+
+			//SHADOWS:
+				shadow = isShadow(u_shadow_vp, v_world_position, u_shadowmap, u_shadow_bias);
 		
 			//DIFFUSE
 				L = normalize(u_light_front[i]); // -L is the direction of the light 
-				N = normalize(v_normal);
 				diffuse_contrib = clamp(dot(N,L), 0.0, 1.0) * light_intensity;
-				diffuse += diffuse_contrib;
+				diffuse += shadow*diffuse_contrib;
 			
 			//SPECULAR
 				R = reflect(-L,N);
 				V = normalize(u_camera_pos - v_world_position);
 				RV = clamp(dot(R,V), 0.0, 1.0);
 				specular_contrib = pow(RV, u_shininess) * light_intensity;
-				specular += specular_contrib;
+				specular += shadow*specular_contrib;
 			}
 	//SPOT LIGHT
 			else {
@@ -366,7 +396,6 @@ void main()
 					light_intensity = vec3(0.0);
 				}
 			//DIFFUSE
-				N = normalize(v_normal);
 				diffuse_contrib = clamp(dot(L,N), 0.0, 1.0) * light_intensity;
 				diffuse += diffuse_contrib;
 
@@ -383,4 +412,25 @@ void main()
 	phong += k*(diffuse + specular);
 	FragColor = vec4(phong, color.a);
 
+}
+
+\plain.fs
+
+#version 330 core
+
+in vec2 v_uv; // to sample the texture
+
+uniform sampler2D u_texture;
+uniform float u_alpha_cutoff;
+
+out vec4 FragColor;
+
+void main()
+{
+	//Alpha testing:
+	vec4 color = texture(u_texture, v_uv);
+	if(color.a < u_alpha_cutoff)
+		discard;
+	
+	FragColor = vec4(0.0, 0.0, 0.0, 1.0); // since glColorMask->false, any color wil be discarded
 }
