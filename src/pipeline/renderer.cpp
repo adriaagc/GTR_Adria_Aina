@@ -37,18 +37,22 @@ Renderer::Renderer(const char* shader_atlas_filename)
 	sphere.createSphere(1.0f);
 	sphere.uploadToVRAM();
 
-	fbo = new GFX::FBO();
-	fbo->setDepthOnly(SHADOW_RES, SHADOW_RES);
+	//fbo = new GFX::FBO();
+	//fbo->setDepthOnly(SHADOW_RES, SHADOW_RES);
+	for (int i = 0; i < MAX_SHADOWS; i++) {
+		fbos[i] = new GFX::FBO();
+		fbos[i]->setDepthOnly(SHADOW_RES, SHADOW_RES);
+	}
 
 }
 
 Renderer::~Renderer() {
-	/*for (int i = 0; i < MAX_SHADOWS; i++) {
-		if (shadow_fbos[i]) {
-			delete shadow_fbos[i];
+	for (int i = 0; i < MAX_SHADOWS; i++) {
+		if (fbos[i]) {
+			delete fbos[i];
 		}
-	}*/
-	if (fbo) delete fbo;
+	}
+	//if (fbo) delete fbo;
 }
 
 void Renderer::setupScene()
@@ -146,6 +150,30 @@ void Renderer::fillLightArrays()
 	}
 }
 
+void Renderer::createLightCameras()
+{
+	int c_idx = 0;
+	int l_idx = -1;
+	for (LightEntity* l : lights_list) {
+		l_idx += 1;
+		if (c_idx >= MAX_SHADOWS) return;
+		if (l->light_type == POINT) continue; //only for non point light sources
+		Camera light_cam;
+		mat4 light_model = l->root.getGlobalMatrix();
+		vec3 light_pos = light_model.getTranslation();
+		light_cam.lookAt(light_pos, light_model * vec3(0.0f, 0.0f, -1.0f), vec3(0.0f, 1.0f, 0.0f));
+		if (l->light_type == DIRECTIONAL) {
+			float half_size = lights_list[l_idx]->area / 2.0f;
+			light_cam.setOrthographic(-half_size, half_size, -half_size, half_size, lights_list[l_idx]->near_distance, lights_list[l_idx]->max_distance);
+		}
+		else if (l->light_type == SPOT) {
+			light_cam.setPerspective(2.0f * l->cone_info.y, 1.0f, l->near_distance, l->max_distance);
+		}
+		shadow_vps[c_idx] = light_cam.viewprojection_matrix;
+		light_cameras[c_idx] = light_cam;
+		c_idx += 1;
+	}
+}
 
 void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 {
@@ -166,22 +194,21 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 		renderSkybox(skybox_cubemap);
 
 //SHADOW MAPS:
-	Camera light_camera;
-	mat4 light_model = lights_list[3]->root.getGlobalMatrix();
-	vec3 light_pos = light_model.getTranslation();
-	light_camera.lookAt(light_pos, light_model * vec3(0.0f, 0.0f, -1.0f), vec3(0.0f, 1.0f, 0.0f));
-	float half_size = lights_list[3]->area / 2.0f;
-	light_camera.setOrthographic(-half_size, half_size, -half_size, half_size, lights_list[3]->near_distance, lights_list[3]->max_distance);
-	dir_cam = &light_camera;
+	createLightCameras();
 
-	fbo->bind();
-	glColorMask(false, false, false, false);
-	glClear(GL_DEPTH_BUFFER_BIT);
-	for (sRenderable& call : opaque_list) {
-		if (isInsideFrustum(&call, dir_cam) != CLIP_OUTSIDE) renderPlain(dir_cam, call.model, call.mesh, call.material);
+	int i = 0;
+	for (GFX::FBO* fbo : fbos) {
+		fbo->bind();
+		glColorMask(false, false, false, false);
+		glClear(GL_DEPTH_BUFFER_BIT);
+		for (sRenderable& call : opaque_list) {
+			if (isInsideFrustum(&call, &light_cameras[i]) != CLIP_OUTSIDE) renderPlain(&light_cameras[i], call.model, call.mesh, call.material);
+		}
+		glColorMask(true, true, true, true);
+		fbo->unbind();
+		i += 1;
 	}
-	glColorMask(true, true, true, true);
-	fbo->unbind();
+	
 
 //PREAPARE LIGHT UNIFORMS:
 	fillLightArrays(); //to fill the arrays containing light info
@@ -354,9 +381,13 @@ void Renderer::renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN
 
 	// Upload shadowmap uniform
 	//fbo->depth_texture->toViewport();
-	shader->setUniform("u_shadowmap", fbo->depth_texture, 2);
-	shader->setUniform("u_shadow_vp", dir_cam->viewprojection_matrix);
+	//shader->setUniform("u_shadowmap", fbo->depth_texture, 2);
+	//shader->setUniform("u_shadow_vp", dir_cam->viewprojection_matrix);
 	shader->setUniform("u_shadow_bias", shadow_bias);
+	shader->setUniform("u_shadowmaps[0]", fbos[0]->depth_texture, 2);
+	shader->setUniform("u_shadowmaps[1]", fbos[1]->depth_texture, 3);
+	shader->setMatrix44Array("u_shadow_vps", shadow_vps, MAX_SHADOWS);
+
 
 	// Render just the verticies as a wireframe
 	if (render_wireframe)

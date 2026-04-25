@@ -299,9 +299,12 @@ uniform int u_light_type[MAX_LIGHTS];
 uniform vec3 u_light_front[MAX_LIGHTS];
 uniform vec2 u_light_cone[MAX_LIGHTS];
 
-uniform sampler2D u_shadowmap;
-uniform mat4 u_shadow_vp;
+const int MAX_SHADOWS = 2; //only directional and spot lights will cast shadows
+// uniform sampler2D u_shadowmap;
+// uniform mat4 u_shadow_vp;
 uniform float u_shadow_bias;
+uniform sampler2D u_shadowmaps[MAX_SHADOWS];
+uniform mat4 u_shadow_vps[MAX_SHADOWS];
 
 //From material->bind:
 uniform vec4 u_color; //color of the material
@@ -324,6 +327,7 @@ void main()
 //VARIABLES TO BE USED:
 	vec3 L_vec, L, N, light_intensity, diffuse_contrib, R, V, specular_contrib, D;
 	float d, attenuation, RV, LD, alpha_max, alpha_min, attenuation_distance, attenuation_angle, shadow;
+	int s = 0; //to know in which shadowmap we are
 
 //AMBIENT LIGHT:
 	vec3 phong = u_ambient_light * k;
@@ -363,7 +367,8 @@ void main()
 				light_intensity = u_intensity[i] * u_light_color[i];
 
 			//SHADOWS:
-				shadow = isShadow(u_shadow_vp, v_world_position, u_shadowmap, u_shadow_bias);
+				shadow = isShadow(u_shadow_vps[s], v_world_position, u_shadowmaps[s], u_shadow_bias);
+				s += 1;
 		
 			//DIFFUSE
 				L = normalize(u_light_front[i]); // -L is the direction of the light 
@@ -391,19 +396,26 @@ void main()
 					attenuation_angle = clamp((LD - alpha_max) / (alpha_min - alpha_max), 0.0, 1.0);
 					attenuation = attenuation_distance * attenuation_angle;
 					light_intensity = u_light_color[i] * attenuation;
+
+				//SHADOWS: only if the pixel is illuminated by the spot light
+					shadow = isShadow(u_shadow_vps[s], v_world_position, u_shadowmaps[s], u_shadow_bias);
 				}
 				else{
 					light_intensity = vec3(0.0);
+					shadow = 0.0;
 				}
+
+				s += 1;
+
 			//DIFFUSE
 				diffuse_contrib = clamp(dot(L,N), 0.0, 1.0) * light_intensity;
-				diffuse += diffuse_contrib;
+				diffuse += shadow*diffuse_contrib;
 
 			//SPECULAR
 				R = reflect(-L,N);
 				RV = clamp(dot(R,V), 0.0, 1.0);
 				specular_contrib = pow(RV, u_shininess) * light_intensity;
-				specular += specular_contrib;
+				specular += shadow*specular_contrib;
 			}
 		}
 

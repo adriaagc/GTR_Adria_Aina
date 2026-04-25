@@ -6,6 +6,7 @@
 
 #define MAX_LIGHTS 4
 #define SHADOW_RES 1024
+#define MAX_SHADOWS 2
 
 //forward declarations
 class Camera;
@@ -55,8 +56,11 @@ namespace SCN {
 		bool render_boundaries;
 
 	//FBOs & shadowmaps
-		GFX::FBO* fbo;
-		Camera* dir_cam;
+		//GFX::FBO* fbo;
+		//Camera* dir_cam;
+		GFX::FBO* fbos[MAX_SHADOWS];
+		Camera light_cameras[MAX_SHADOWS];
+		Matrix44 shadow_vps[MAX_SHADOWS];
 
 
 		GFX::Texture* skybox_cubemap;
@@ -78,6 +82,8 @@ namespace SCN {
 		char isInsideFrustum(sRenderable* obj, Camera* camera);
 
 		void fillLightArrays();
+
+		void createLightCameras();
 
 		void parseSceneEntities(SCN::Scene* scene, Camera* camera);
 
