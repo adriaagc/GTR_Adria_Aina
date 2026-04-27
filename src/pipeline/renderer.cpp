@@ -44,6 +44,13 @@ Renderer::Renderer(const char* shader_atlas_filename)
 		fbos[i]->setDepthOnly(SHADOW_RES, SHADOW_RES);
 	}
 
+	
+	//Create the G-Buffer
+	gbuffer = new GFX::FBO();
+	//int width, int height, int num_textures, int format, int type, bool use_depth_texture
+	//Vector2f size(1024, 768); Window size 
+	gbuffer->create(WIDTH,HEIGHT,2,GL_RGBA,GL_UNSIGNED_BYTE,true);
+
 }
 
 Renderer::~Renderer() {
@@ -209,6 +216,18 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 		i += 1;
 	}
 	
+	//G-BUFFER: 
+	gbuffer->bind();
+
+	// Per saber que guarda més d'una textura 
+	GLenum buffers[] = { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1 };
+	glDrawBuffers(2, buffers);
+
+	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);//Neteja les textures
+	for (sRenderable& call : opaque_list) {
+		if(isInsideFrustum(&call, camera) != CLIP_OUTSIDE) renderGBuffer(camera, call.model, call.mesh, call.material);
+	}
+	gbuffer->unbind();
 
 //PREAPARE LIGHT UNIFORMS:
 	fillLightArrays(); //to fill the arrays containing light info
@@ -288,6 +307,60 @@ void Renderer::renderPlain(Camera* light_cam, const Matrix44 model, GFX::Mesh* m
 	glFrontFace(GL_CCW);
 }
 
+void Renderer::renderGBuffer(Camera* light_cam, const Matrix44 model, GFX::Mesh* mesh, SCN::Material* material)
+{
+	//in case there is nothing to do
+	if (!mesh || !mesh->getNumVertices() || !material)
+		return;
+	assert(glGetError() == GL_NO_ERROR);
+
+	//define locals to simplify coding
+	GFX::Shader* shader = NULL;
+
+	glEnable(GL_DEPTH_TEST);
+
+	//chose a shader
+	shader = GFX::Shader::Get("fill_gbuffer");
+
+	assert(glGetError() == GL_NO_ERROR);
+
+	//no shader? then nothing to render
+	if (!shader)
+		return;
+
+	shader->enable();
+
+	glEnable(GL_CULL_FACE);
+	glFrontFace(GL_CW);
+
+	material->bind(shader);
+
+	//For the basic.vs
+	//upload uniforms
+	shader->setUniform("u_model", model);
+
+	// Upload camera uniforms
+	shader->setUniform("u_viewprojection", light_cam->viewprojection_matrix);
+	shader->setUniform("u_camera_pos", light_cam->eye);
+	shader->setUniform("u_model", model);
+
+
+	// Render just the verticies as a wireframe
+	if (render_wireframe)
+		glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+
+	//do the draw call that renders the mesh into the screen
+	mesh->render(GL_TRIANGLES);
+
+	//disable shader
+	shader->disable();
+
+	//set the render state as it was before to avoid problems with future renders
+	glDisable(GL_BLEND);
+	glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+	glDisable(GL_CULL_FACE);
+	glFrontFace(GL_CCW);
+}
 
 void Renderer::renderSkybox(GFX::Texture* cubemap)
 {

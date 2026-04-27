@@ -8,6 +8,10 @@
 #define SHADOW_RES 1024
 #define MAX_SHADOWS 2
 
+#define WIDTH 1024
+#define HEIGHT 768
+
+
 //forward declarations
 class Camera;
 class Skeleton;
@@ -62,6 +66,8 @@ namespace SCN {
 		Camera light_cameras[MAX_SHADOWS];
 		Matrix44 shadow_vps[MAX_SHADOWS];
 
+	//G_Buffer
+		GFX::FBO* gbuffer;
 
 		GFX::Texture* skybox_cubemap;
 
@@ -98,6 +104,7 @@ namespace SCN {
 
 		//to fill the framebuffer without drawing from the perspective of the light
 		void renderPlain(Camera* light_cam, const Matrix44 model, GFX::Mesh* mesh, SCN::Material* material);
+		void renderGBuffer(Camera* light_cam, const Matrix44 model, GFX::Mesh* mesh, SCN::Material* material);
 
 		void showUI();
 	};
