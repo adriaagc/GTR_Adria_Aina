@@ -7,6 +7,7 @@ multi basic.vs multi.fs
 phong basic.vs phong.fs
 plain basic.vs plain.fs
 fill_gbuffer basic.vs fill_gbuffer.fs
+deferred_phong quad.vs deferred_phong.fs
 
 \perturbNormal
 
@@ -283,7 +284,7 @@ in vec4 v_color;
 // in vec3 v_tangent;
 
 //From renderMeshWithMaterial:
-uniform mat4 u_model; //object's model
+// uniform mat4 u_model; //object's model
 uniform mat4 u_viewprojection; //camera's vp 
 uniform float u_time;
 uniform vec3 u_camera_pos;
@@ -301,8 +302,6 @@ uniform vec3 u_light_front[MAX_LIGHTS];
 uniform vec2 u_light_cone[MAX_LIGHTS];
 
 const int MAX_SHADOWS = 2; //only directional and spot lights will cast shadows
-// uniform sampler2D u_shadowmap;
-// uniform mat4 u_shadow_vp;
 uniform float u_shadow_bias;
 uniform sampler2D u_shadowmaps[MAX_SHADOWS];
 uniform mat4 u_shadow_vps[MAX_SHADOWS];
@@ -458,9 +457,11 @@ in vec2 v_uv; // to sample textures
 in vec3 v_normal; // normal in 
 in vec3 v_world_position;
 
+// Uniforms from mateiral->bind:
 uniform sampler2D u_texture; // color texture
 uniform sampler2D u_normalmap;
 uniform float u_alpha_cutoff;
+uniform vec4 u_color;
 
 // Replace out vec4 FragColor with:
 layout(location = 0) out vec4 gbuffer_albedo; // store color info here
@@ -468,15 +469,172 @@ layout(location = 1) out vec4 gbuffer_normal_mat; // store normal info here
 
 void main()
 {
-	vec4 color = texture(u_texture, v_uv);
+	vec4 color = u_color;
+	color *= texture(u_texture, v_uv);
 	if(color.a < u_alpha_cutoff) 
 		discard;
 
-	// vec4 normal = texture(u_normalmap, v_uv);
 	vec3 nm_color = normalize((texture(u_normalmap, v_uv).xyz * 2.0) - 1.0); //color sampled from the normalmap converted to a range [-1,1]
 	vec3 N = perturbNormal(normalize(v_normal), v_world_position, v_uv, nm_color); // rarnge [-1, 1]
 	N = 0.5 * N + 0.5; // to texture range [0, 1]
 	vec4 normal = vec4(N, 1.0); // if alpha = 0 -> transparent
 	gbuffer_albedo = color;
 	gbuffer_normal_mat = normal;
+}
+
+
+\deferred_phong.fs
+
+#version 330 core
+#include computeShadow
+
+// From basic.vs:
+in vec2 v_uv; // to sample textures
+
+// Camera Uniforms:
+uniform mat4 u_inv_viewprojection;
+uniform vec3 u_camera_pos;
+
+//Lighting Uniforms:
+const int MAX_LIGHTS = 4;
+uniform vec3 u_ambient_light;
+uniform int u_num_lights;
+uniform float u_shininess;
+uniform vec3 u_light_pos[MAX_LIGHTS];
+uniform vec3 u_light_color[MAX_LIGHTS];
+uniform float u_intensity[MAX_LIGHTS];
+uniform int u_light_type[MAX_LIGHTS];
+uniform vec3 u_light_front[MAX_LIGHTS];
+uniform vec2 u_light_cone[MAX_LIGHTS];
+
+// ShadowMaps:
+const int MAX_SHADOWS = 2; //only directional and spot lights will cast shadows
+uniform float u_shadow_bias;
+uniform sampler2D u_shadowmaps[MAX_SHADOWS];
+uniform mat4 u_shadow_vps[MAX_SHADOWS];
+
+// GBuffer textures:
+uniform sampler2D u_gbuffer_color;
+uniform sampler2D u_gbuffer_normal;
+uniform sampler2D u_gbuffer_depth;
+
+// Color Output:
+out vec4 FragColor;
+
+void main()
+{	
+// Compute fragment world position: 
+	float depth = texture(u_gbuffer_depth, v_uv).r; // texture range [0,1] stored in first channel
+	if (depth >= 1.0) discard; // If the depth is so large then it belongs to the background or skybox!
+	float depth_clip = 2.0 * depth - 1.0; // clip space range [-1, 1]
+	vec2 uv_clip = 2.0 * v_uv - 1.0;
+	vec4 clip_coords = vec4(uv_clip.x, uv_clip.y, depth_clip, 1.0);
+	vec4 not_norm_world_pos = u_inv_viewprojection * clip_coords; // from clip space to world space in homogeneous coord's
+	vec3 world_pos = not_norm_world_pos.xyz / not_norm_world_pos.w; // convert to cartesian coord's
+
+
+// Extract Normal
+	vec3 normal = 2.0 * texture(u_gbuffer_normal, v_uv).xyz - 1.0; //back to [-1, 1] range
+	vec3 N = normalize(normal);
+
+// Fragment's initial color -> without lighting
+	vec4 color = texture(u_gbuffer_color, v_uv);
+	vec3 k = color.rgb; //k = k_a = k_s = k_d
+
+// Define some variables:
+ 	vec3 L_vec, L, light_intensity, diffuse_contrib, R, V, specular_contrib, D;
+	float d, attenuation, RV, LD, alpha_max, alpha_min, attenuation_distance, attenuation_angle, shadow;
+
+//AMBIENT LIGHT:
+	vec3 phong = u_ambient_light * k;
+
+	//CUMULATIVE VARIABLES:
+	vec3 diffuse = vec3(0.0);
+	vec3 specular = vec3(0.0);
+	int s = 0; // to know in which shadowmap we are.
+
+
+	for (int i = 0; i < MAX_LIGHTS; i++) {
+		if(i >= u_num_lights) break;
+
+	// POINT LIGHT
+		if (u_light_type[i] == 1) {
+		// DIFFUSE
+			L_vec = u_light_pos[i] - world_pos;
+			L = normalize(L_vec);
+			d = length(L_vec);
+			attenuation = u_intensity[i]/pow(d,2);
+			light_intensity = attenuation * u_light_color[i]; // what reaches the point
+			diffuse_contrib = clamp(dot(L,N), 0.0, 1.0) * light_intensity;
+			diffuse += diffuse_contrib;
+
+		//SPECULAR:
+				R = reflect(-L, N);
+				V = normalize(u_camera_pos - world_pos);
+				RV = clamp(dot(R,V), 0.0, 1.0);
+				specular_contrib = pow(RV, u_shininess) * light_intensity;
+				specular += specular_contrib;
+		}
+	
+	//DIRECTION LIGHT 
+		else if (u_light_type[i] == 3) {
+		//There is no attenuation:
+			light_intensity = u_intensity[i] * u_light_color[i];
+
+		//SHADOWS:
+			shadow = isShadow(u_shadow_vps[s], world_pos, u_shadowmaps[s], u_shadow_bias);
+			s += 1;
+
+		//DIFFUSE
+			L = normalize(u_light_front[i]); // -L is the direction of the light 
+			diffuse_contrib = clamp(dot(N,L), 0.0, 1.0) * light_intensity;
+			diffuse += shadow*diffuse_contrib;
+
+		//SPECULAR
+			R = reflect(-L,N);
+			V = normalize(u_camera_pos - world_pos);
+			RV = clamp(dot(R,V), 0.0, 1.0);
+			specular_contrib = pow(RV, u_shininess) * light_intensity;
+			specular += shadow*specular_contrib;
+		}
+
+	//SPOT LIGHT 
+		else {
+			L_vec = u_light_pos[i] - world_pos;
+			L = normalize(L_vec);
+			D = normalize(-u_light_front[i]); //cone center direction
+			LD = dot(-L,D);
+			alpha_max = cos(u_light_cone[i].y);
+			if(LD >= alpha_max){
+				alpha_min = cos(u_light_cone[i].x);
+				d = length(L_vec); //distance from point to light source
+				attenuation_distance = u_intensity[i] / pow(d,2); // attenuation of light by distance between point and light source
+				attenuation_angle = clamp((LD - alpha_max) / (alpha_min - alpha_max), 0.0, 1.0);
+				attenuation = attenuation_distance * attenuation_angle;
+				light_intensity = u_light_color[i] * attenuation;
+			//SHADOWS: only if the pixel is illuminated by the spot light
+				shadow = isShadow(u_shadow_vps[s], world_pos, u_shadowmaps[s], u_shadow_bias);
+			}
+			else {
+				light_intensity = vec3(0.0);
+				shadow = 0.0;				
+			}
+
+			s += 1;
+
+		//DIFFUSE
+			diffuse_contrib = clamp(dot(L,N), 0.0, 1.0) * light_intensity;
+			diffuse += shadow*diffuse_contrib;
+
+		//SPECULAR
+			R = reflect(-L,N);
+			RV = clamp(dot(R,V), 0.0, 1.0);
+			specular_contrib = pow(RV, u_shininess) * light_intensity;
+			specular += shadow*specular_contrib;
+		}
+	}
+
+	phong += k*(diffuse + specular);
+
+	FragColor = vec4(phong, color.a);
 }

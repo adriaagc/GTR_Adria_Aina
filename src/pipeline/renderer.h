@@ -103,6 +103,9 @@ namespace SCN {
 		//to render one mesh given its material and transformation matrix
 		void renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN::Material* material);
 
+		//Phong with deferred rendering
+		void renderQuadMesh(GFX::Mesh* mesh);
+
 		//to fill the framebuffer without drawing from the perspective of the light
 		void renderPlain(Camera* light_cam, const Matrix44 model, GFX::Mesh* mesh, SCN::Material* material);
 		void renderGBuffer(const Matrix44 model, GFX::Mesh* mesh, SCN::Material* material);

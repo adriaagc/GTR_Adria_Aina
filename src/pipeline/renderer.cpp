@@ -230,6 +230,10 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 		if(isInsideFrustum(&call, camera) != CLIP_OUTSIDE) renderGBuffer(call.model, call.mesh, call.material);
 	}
 	gbuffer->unbind();
+	
+//QUAD:
+	GFX::Mesh* quad = GFX::Mesh::getQuad();
+	
 
 //PREAPARE LIGHT UNIFORMS:
 	fillLightArrays(); //to fill the arrays containing light info
@@ -251,7 +255,7 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 
 	// render opaque list
 	for (sRenderable call : opaque_list) {
-		if (isInsideFrustum(&call, camera) != CLIP_OUTSIDE) renderMeshWithMaterial(call.model, call.mesh, call.material); // inside frustum -> render
+		if (isInsideFrustum(&call, camera) != CLIP_OUTSIDE) renderQuadMesh(quad);//renderMeshWithMaterial(call.model, call.mesh, call.material); // inside frustum -> render
 	}
 	// render translucent list
 	for (sRenderable call : translucent_list) {
@@ -335,9 +339,6 @@ void Renderer::renderGBuffer(const Matrix44 model, GFX::Mesh* mesh, SCN::Materia
 
 	shader->enable();
 
-	//glEnable(GL_CULL_FACE);
-	//glFrontFace(GL_CW);
-
 	material->bind(shader);
 
 //For the basic.vs
@@ -363,8 +364,6 @@ void Renderer::renderGBuffer(const Matrix44 model, GFX::Mesh* mesh, SCN::Materia
 	//set the render state as it was before to avoid problems with future renders
 	glDisable(GL_BLEND);
 	glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-	glDisable(GL_CULL_FACE);
-	glFrontFace(GL_CCW);
 }
 
 void Renderer::renderSkybox(GFX::Texture* cubemap)
@@ -422,7 +421,6 @@ void Renderer::renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN
 	glEnable(GL_DEPTH_TEST);
 
 	//chose a shader
-	//shader = GFX::Shader::Get("texture");
 	shader = GFX::Shader::Get("phong");
 
 
@@ -458,14 +456,10 @@ void Renderer::renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN
 	shader->setUniform2Array("u_light_cone", (float*)light_cone, MAX_LIGHTS);
 
 	// Upload shadowmap uniform
-	//fbo->depth_texture->toViewport();
-	//shader->setUniform("u_shadowmap", fbo->depth_texture, 2);
-	//shader->setUniform("u_shadow_vp", dir_cam->viewprojection_matrix);
 	shader->setUniform("u_shadow_bias", shadow_bias);
 	shader->setUniform("u_shadowmaps[0]", fbos[0]->depth_texture, 2);
 	shader->setUniform("u_shadowmaps[1]", fbos[1]->depth_texture, 3);
 	shader->setMatrix44Array("u_shadow_vps", shadow_vps, MAX_SHADOWS);
-
 
 	// Render just the verticies as a wireframe
 	if (render_wireframe)
@@ -482,6 +476,75 @@ void Renderer::renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN
 	glPolygonMode( GL_FRONT_AND_BACK, GL_FILL );
 }
 
+void Renderer::renderQuadMesh(GFX::Mesh* mesh)
+{
+	//in case there is nothing to do
+	if (!mesh || !mesh->getNumVertices())
+		return;
+	assert(glGetError() == GL_NO_ERROR);
+
+	//define locals to simplify coding
+	GFX::Shader* shader = NULL;
+	Camera* camera = Camera::current;
+
+	glEnable(GL_DEPTH_TEST);
+
+	//chose a shader
+	shader = GFX::Shader::Get("deferred_phong");
+
+	assert(glGetError() == GL_NO_ERROR);
+
+	//no shader? then nothing to render
+	if (!shader)
+		return;
+	shader->enable();
+
+//UPLOAD UNIFORMS:
+	// Upload camera uniforms
+	shader->setUniform("u_inv_viewprojection", camera->inverse_viewprojection_matrix);
+	shader->setUniform("u_camera_pos", camera->eye);
+
+	// Upload time, for cool shader effects
+	float t = getTime();
+	shader->setUniform("u_time", t);
+
+	// Upload light uniforms
+	shader->setUniform("u_ambient_light", scene->ambient_light);
+	shader->setUniform("u_num_lights", (int)lights_list.size());
+	shader->setUniform("u_shininess", shininess);
+	shader->setUniform3Array("u_light_pos", (float*)light_pos, MAX_LIGHTS);
+	shader->setUniform1Array("u_intensity", light_intensity, MAX_LIGHTS);
+	shader->setUniform3Array("u_light_color", (float*)light_color, MAX_LIGHTS);
+	shader->setUniform1Array("u_light_type", light_type, MAX_LIGHTS);
+	shader->setUniform3Array("u_light_front", (float*)light_front, MAX_LIGHTS);
+	shader->setUniform2Array("u_light_cone", (float*)light_cone, MAX_LIGHTS);
+
+	// Upload shadowmap uniform
+	shader->setUniform("u_shadow_bias", shadow_bias);
+	shader->setUniform("u_shadowmaps[0]", fbos[0]->depth_texture, 2);
+	shader->setUniform("u_shadowmaps[1]", fbos[1]->depth_texture, 3);
+	shader->setMatrix44Array("u_shadow_vps", shadow_vps, MAX_SHADOWS);
+
+	// Bind the GBuffers
+	shader->setTexture("u_gbuffer_color", gbuffer->color_textures[0], 4);
+	shader->setTexture("u_gbuffer_normal", gbuffer->color_textures[1], 5);
+	shader->setTexture("u_gbuffer_depth", gbuffer->depth_texture, 6);
+
+	// Render just the verticies as a wireframe
+	if (render_wireframe)
+		glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+
+	//do the draw call that renders the mesh into the screen
+	mesh->render(GL_TRIANGLES);
+
+	//disable shader
+	shader->disable();
+
+	//set the render state as it was before to avoid problems with future renders
+	glDisable(GL_BLEND);
+	glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+}
+
 #ifndef SKIP_IMGUI
 
 void Renderer::showUI()
@@ -493,7 +556,7 @@ void Renderer::showUI()
 	//add here your stuff
 	//...
 	ImGui::SliderFloat("Shininess", &shininess, 0.0f, 100.0f);
-	ImGui::SliderFloat("ShadowBias", &shadow_bias, 0.0001f, 0.001f);
+	ImGui::SliderFloat("ShadowBias", &shadow_bias, 0.001f, 0.005f);
 	ImGui::Checkbox("ForwardFacingCulling", &ffc);
 
 }
