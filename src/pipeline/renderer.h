@@ -55,6 +55,7 @@ namespace SCN {
 	//ImGui:
 		float shininess = 20.0;
 		float shadow_bias = 0.0001;
+		bool ffc = true; // enable forward facing culling
 
 		bool render_wireframe;
 		bool render_boundaries;
@@ -104,7 +105,7 @@ namespace SCN {
 
 		//to fill the framebuffer without drawing from the perspective of the light
 		void renderPlain(Camera* light_cam, const Matrix44 model, GFX::Mesh* mesh, SCN::Material* material);
-		void renderGBuffer(Camera* light_cam, const Matrix44 model, GFX::Mesh* mesh, SCN::Material* material);
+		void renderGBuffer(const Matrix44 model, GFX::Mesh* mesh, SCN::Material* material);
 
 		void showUI();
 	};

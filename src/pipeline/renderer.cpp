@@ -49,7 +49,7 @@ Renderer::Renderer(const char* shader_atlas_filename)
 	gbuffer = new GFX::FBO();
 	//int width, int height, int num_textures, int format, int type, bool use_depth_texture
 	//Vector2f size(1024, 768); Window size 
-	gbuffer->create(WIDTH,HEIGHT,2,GL_RGBA,GL_UNSIGNED_BYTE,true);
+	gbuffer->create(WIDTH,HEIGHT,2,GL_RGBA,GL_UNSIGNED_BYTE,true); //2 textures w/ depth
 
 }
 
@@ -60,6 +60,8 @@ Renderer::~Renderer() {
 		}
 	}
 	//if (fbo) delete fbo;
+
+	if (gbuffer) delete gbuffer;
 }
 
 void Renderer::setupScene()
@@ -216,16 +218,16 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 		i += 1;
 	}
 	
-	//G-BUFFER: 
+//G-BUFFER: 
 	gbuffer->bind();
 
 	// Per saber que guarda més d'una textura 
 	GLenum buffers[] = { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1 };
 	glDrawBuffers(2, buffers);
 
-	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);//Neteja les textures
+	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT); // Clear textures from prev frame
 	for (sRenderable& call : opaque_list) {
-		if(isInsideFrustum(&call, camera) != CLIP_OUTSIDE) renderGBuffer(camera, call.model, call.mesh, call.material);
+		if(isInsideFrustum(&call, camera) != CLIP_OUTSIDE) renderGBuffer(call.model, call.mesh, call.material);
 	}
 	gbuffer->unbind();
 
@@ -281,8 +283,10 @@ void Renderer::renderPlain(Camera* light_cam, const Matrix44 model, GFX::Mesh* m
 
 	shader->enable();
 
-	glEnable(GL_CULL_FACE);
-	glFrontFace(GL_CW);
+	if (ffc) {
+		glEnable(GL_CULL_FACE);
+		glFrontFace(GL_CW);
+	}
 
 	material->bind(shader);
 
@@ -307,7 +311,7 @@ void Renderer::renderPlain(Camera* light_cam, const Matrix44 model, GFX::Mesh* m
 	glFrontFace(GL_CCW);
 }
 
-void Renderer::renderGBuffer(Camera* light_cam, const Matrix44 model, GFX::Mesh* mesh, SCN::Material* material)
+void Renderer::renderGBuffer(const Matrix44 model, GFX::Mesh* mesh, SCN::Material* material)
 {
 	//in case there is nothing to do
 	if (!mesh || !mesh->getNumVertices() || !material)
@@ -316,6 +320,7 @@ void Renderer::renderGBuffer(Camera* light_cam, const Matrix44 model, GFX::Mesh*
 
 	//define locals to simplify coding
 	GFX::Shader* shader = NULL;
+	Camera* camera = Camera::current;
 
 	glEnable(GL_DEPTH_TEST);
 
@@ -330,18 +335,18 @@ void Renderer::renderGBuffer(Camera* light_cam, const Matrix44 model, GFX::Mesh*
 
 	shader->enable();
 
-	glEnable(GL_CULL_FACE);
-	glFrontFace(GL_CW);
+	//glEnable(GL_CULL_FACE);
+	//glFrontFace(GL_CW);
 
 	material->bind(shader);
 
-	//For the basic.vs
+//For the basic.vs
 	//upload uniforms
 	shader->setUniform("u_model", model);
 
 	// Upload camera uniforms
-	shader->setUniform("u_viewprojection", light_cam->viewprojection_matrix);
-	shader->setUniform("u_camera_pos", light_cam->eye);
+	shader->setUniform("u_viewprojection", camera->viewprojection_matrix);
+	shader->setUniform("u_camera_pos", camera->eye);
 	shader->setUniform("u_model", model);
 
 
@@ -488,7 +493,8 @@ void Renderer::showUI()
 	//add here your stuff
 	//...
 	ImGui::SliderFloat("Shininess", &shininess, 0.0f, 100.0f);
-	//ImGui::SliderFloat("ShadowBias", &shadow_bias, 0.0001f, 0.001f);
+	ImGui::SliderFloat("ShadowBias", &shadow_bias, 0.0001f, 0.001f);
+	ImGui::Checkbox("ForwardFacingCulling", &ffc);
 
 }
 
