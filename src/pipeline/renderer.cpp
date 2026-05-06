@@ -44,13 +44,15 @@ Renderer::Renderer(const char* shader_atlas_filename)
 		fbos[i]->setDepthOnly(SHADOW_RES, SHADOW_RES);
 	}
 
-	
 	//Create the G-Buffer
 	gbuffer = new GFX::FBO();
 	//int width, int height, int num_textures, int format, int type, bool use_depth_texture
 	//Vector2f size(1024, 768); Window size 
 	gbuffer->create(WIDTH,HEIGHT,2,GL_RGBA,GL_UNSIGNED_BYTE,true); //2 textures w/ depth
 
+	//Light Volumes
+	lighting_FBO = new GFX::FBO();
+	lighting_FBO->create(WIDTH, HEIGHT, 1, GL_RGBA, GL_UNSIGNED_BYTE, true);
 }
 
 Renderer::~Renderer() {
@@ -62,6 +64,7 @@ Renderer::~Renderer() {
 	//if (fbo) delete fbo;
 
 	if (gbuffer) delete gbuffer;
+	if (lighting_FBO) delete lighting_FBO;
 }
 
 void Renderer::setupScene()
@@ -199,46 +202,8 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 	GFX::checkGLErrors();
 
 	//render skybox
-	if(skybox_cubemap)
+	if (skybox_cubemap)
 		renderSkybox(skybox_cubemap);
-
-//SHADOW MAPS:
-	createLightCameras();
-
-	int i = 0;
-	for (GFX::FBO* fbo : fbos) {
-		fbo->bind();
-		glColorMask(false, false, false, false);
-		glClear(GL_DEPTH_BUFFER_BIT);
-		for (sRenderable& call : opaque_list) {
-			if (isInsideFrustum(&call, &light_cameras[i]) != CLIP_OUTSIDE) renderPlain(&light_cameras[i], call.model, call.mesh, call.material);
-		}
-		glColorMask(true, true, true, true);
-		fbo->unbind();
-		i += 1;
-	}
-	
-//G-BUFFER: 
-	gbuffer->bind();
-
-	// Per saber que guarda més d'una textura 
-	GLenum buffers[] = { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1 };
-	glDrawBuffers(2, buffers);
-
-	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT); // Clear textures from prev frame
-	for (sRenderable& call : opaque_list) {
-		if(isInsideFrustum(&call, camera) != CLIP_OUTSIDE) renderGBuffer(call.model, call.mesh, call.material);
-	}
-	gbuffer->unbind();
-	
-//QUAD:
-	GFX::Mesh* quad = GFX::Mesh::getQuad();
-	
-
-//PREAPARE LIGHT UNIFORMS:
-	fillLightArrays(); //to fill the arrays containing light info
-
-//RENDER ENTITIES:
 
 	// we have to sort the objects lists
 	Vector3 cam_pos = camera->eye;
@@ -253,14 +218,193 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 		float db = (b.model.getTranslation() - cam_pos).length();
 		return da > db;}); // First objects that are closer (minimize overwriting)
 
-	// render opaque list
-	for (sRenderable call : opaque_list) {
-		if (isInsideFrustum(&call, camera) != CLIP_OUTSIDE) renderQuadMesh(quad);//renderMeshWithMaterial(call.model, call.mesh, call.material); // inside frustum -> render
+	//PREAPARE LIGHT UNIFORMS:
+	fillLightArrays(); //to fill the arrays containing light info
+
+	//SHADOW MAPS:
+	createLightCameras();
+
+	int i = 0;
+	for (GFX::FBO* fbo : fbos) {
+		fbo->bind();
+		glColorMask(false, false, false, false);
+		glClear(GL_DEPTH_BUFFER_BIT);
+		for (sRenderable& call : opaque_list) {
+			if (isInsideFrustum(&call, &light_cameras[i]) != CLIP_OUTSIDE) renderPlain(&light_cameras[i], call.model, call.mesh, call.material);
+		}
+		glColorMask(true, true, true, true);
+		fbo->unbind();
+		i += 1;
 	}
-	// render translucent list
+
+	//G-BUFFER: 
+	gbuffer->bind();
+	// Per saber que guarda més d'una textura 
+	GLenum buffers[] = { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1 };
+	glDrawBuffers(2, buffers);
+
+	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT); // Clear textures from prev frame
+	for (sRenderable& call : opaque_list) {
+		if (isInsideFrustum(&call, camera) != CLIP_OUTSIDE) renderGBuffer(call.model, call.mesh, call.material);
+	}
+	gbuffer->unbind();
+
+	//QUAD:
+	GFX::Mesh* quad = GFX::Mesh::getQuad();
+
+	//LIGHT VOLUMES:
+	gbuffer->depth_texture->copyTo(lighting_FBO->depth_texture);
+
+	lighting_FBO->bind();
+	glClear(GL_COLOR_BUFFER_BIT);
+	//HERE: Compute light
+	//AMBIENT & DIRECTIONAL LIGHT
+	renderAmbient(quad);
+	//renderQuadMesh(quad); //deferred rendering with Phong
+
+	//RENDER LIGHT VOLUMES:
+	//renderLightVolume();
+
+	//render translucent list
 	for (sRenderable call : translucent_list) {
 		if (isInsideFrustum(&call, camera) != CLIP_OUTSIDE) renderMeshWithMaterial(call.model, call.mesh, call.material);
 	}
+
+	lighting_FBO->unbind();
+
+	lighting_FBO->color_textures[0]->toViewport();
+
+
+}
+void Renderer::renderAmbient(GFX::Mesh* mesh)
+{
+	GFX::Shader* shader = NULL;
+
+	glEnable(GL_DEPTH_TEST);
+	//glDepthMask(GL_FALSE);
+
+	//chose a shader
+	shader = GFX::Shader::Get("ambient_render");
+
+	assert(glGetError() == GL_NO_ERROR);
+
+	if (!shader) return;
+
+	shader->enable();
+
+	shader->setUniform("u_gbuffer_color", gbuffer->color_textures[0], 2); //after gbuffer
+	shader->setUniform("u_gbuffer_depth", lighting_FBO->depth_texture, 3);
+	shader->setUniform("u_ambient_light", scene->ambient_light);
+
+	// Render just the verticies as a wireframe
+	if (render_wireframe)
+		glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+
+	//do the draw call that renders the mesh into the screen
+	mesh->render(GL_TRIANGLES);
+
+	//disable shader
+	shader->disable();
+
+	//set the render state as it was before to avoid problems with future renders
+	glDisable(GL_BLEND);
+	glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+
+}
+
+void Renderer::renderLightVolume()
+{
+	assert(glGetError() == GL_NO_ERROR);
+
+	//define locals to simplify coding
+	GFX::Shader* shader = NULL;
+	Camera* camera = Camera::current;
+
+	glEnable(GL_DEPTH_TEST);
+
+	//chose a shader
+	shader = GFX::Shader::Get("volume_render");
+	//no shader? then nothing to render
+	if (!shader)
+		return;
+
+	shader->enable();
+
+	//OpenGL config
+	glDepthFunc(GL_GREATER); //only render those fragments inside the fragment (depth_frag > depth_buffer)
+	glDepthMask(GL_FALSE); //do not modify/write to the depthbuffer. (avoid overwriting the scene with the light volumes)
+	glBlendFunc(GL_ONE, GL_ONE); //additive blending: sum the computed color in FragColor to the prev color.
+	glEnable(GL_BLEND); //so that glBlendFunc(GL_ONE, GL_ONE) has effect otherwise FragColor would replace the prev color.
+	glFrontFace(GL_CW);
+
+	//create light volume mesh
+	GFX::Mesh light_vol;
+	float attenuation_th = 0.01f; //if intensity/d^2 < th -> the light no longer contributes
+
+	int s = 0;
+	for (int i = 0; i < lights_list.size(); i++) {
+		if (lights_list[i]->light_type == DIRECTIONAL) {
+			s += 1;
+			continue; //Skip directional lights, already rendered with ambient light
+		}
+		float d = sqrt(lights_list[i]->intensity / attenuation_th); //the maximum distance to consider the light source is the radius (point lights)
+		light_vol.createSphere(d);
+		Matrix44 m;
+		vec3 pos = lights_list[i]->root.getGlobalMatrix().getTranslation();
+		m.setTranslation(pos.x, pos.y, pos.z);
+		float radius = lights_list[i]->max_distance;
+		m.scale(radius, radius, radius);
+		shader->setMatrix44("u_model", m);
+
+		//UPLOAD UNIFORMS:
+			// Upload camera uniforms
+		shader->setUniform("u_inv_viewprojection", camera->inverse_viewprojection_matrix);
+		shader->setUniform("u_camera_pos", camera->eye);
+
+		// Upload time, for cool shader effects
+		float t = getTime();
+		shader->setUniform("u_time", t);
+
+		// Upload light uniforms
+		shader->setUniform("u_ambient_light", scene->ambient_light);
+		shader->setUniform("u_num_lights", (int)lights_list.size());
+		shader->setUniform("u_shininess", shininess);
+		shader->setUniform("u_light_pos", light_pos[i]);
+		shader->setUniform("u_intensity", light_intensity[i]);
+		shader->setUniform("u_light_color", light_color[i]);
+		shader->setUniform("u_light_type", light_type[i]);
+		shader->setUniform("u_light_front", light_front[i]);
+		shader->setUniform("u_light_cone", light_cone[i]);
+
+		// Upload shadowmap uniform
+		shader->setUniform("u_shadow_bias", shadow_bias);
+		shader->setUniform("u_shadowmaps[0]", fbos[0]->depth_texture, 2);
+		shader->setUniform("u_shadow_vps", shadow_vps[s]);
+
+		if (lights_list[i]->light_type == SPOT ) s += 1;
+
+		// Bind the GBuffers
+		shader->setTexture("u_gbuffer_color", gbuffer->color_textures[0], 3);
+		shader->setTexture("u_gbuffer_normal", gbuffer->color_textures[1], 4);
+		shader->setTexture("u_gbuffer_depth", gbuffer->depth_texture, 5);
+
+		// Render just the verticies as a wireframe
+		if (render_wireframe)
+			glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+
+		//do the draw call that renders the mesh into the screen
+		light_vol.render(GL_TRIANGLES);
+	}
+
+	//disable shader
+	shader->disable();
+
+	//set the render state as it was before to avoid problems with future renders
+	glDisable(GL_BLEND);
+	glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+	glDepthFunc(GL_LESS);
+	glDepthMask(GL_TRUE);
+	glFrontFace(GL_CCW);
 
 }
 

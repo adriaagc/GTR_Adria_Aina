@@ -67,12 +67,16 @@ namespace SCN {
 		Camera light_cameras[MAX_SHADOWS];
 		Matrix44 shadow_vps[MAX_SHADOWS];
 
-	//G_Buffer
+	//G_Buffer:
 		GFX::FBO* gbuffer;
 
 		GFX::Texture* skybox_cubemap;
 
 		SCN::Scene* scene;
+
+	//Light Volumes:
+		GFX::FBO* lighting_FBO;
+
 
 		//updated every frame
 		Renderer(const char* shaders_atlas_filename );
@@ -109,6 +113,10 @@ namespace SCN {
 		//to fill the framebuffer without drawing from the perspective of the light
 		void renderPlain(Camera* light_cam, const Matrix44 model, GFX::Mesh* mesh, SCN::Material* material);
 		void renderGBuffer(const Matrix44 model, GFX::Mesh* mesh, SCN::Material* material);
+
+		//Light Volumes:
+		void renderAmbient(GFX::Mesh* mesh);
+		void renderLightVolume();
 
 		void showUI();
 	};

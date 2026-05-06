@@ -8,6 +8,8 @@ phong basic.vs phong.fs
 plain basic.vs plain.fs
 fill_gbuffer basic.vs fill_gbuffer.fs
 deferred_phong quad.vs deferred_phong.fs
+ambient_render quad.vs ambient_render.fs
+volume_render quad.vs volume_render.fs
 
 \perturbNormal
 
@@ -488,7 +490,7 @@ void main()
 #version 330 core
 #include computeShadow
 
-// From basic.vs:
+// From quad.vs:
 in vec2 v_uv; // to sample textures
 
 // Camera Uniforms:
@@ -634,6 +636,192 @@ void main()
 		}
 	}
 
+	phong += k*(diffuse + specular);
+
+	FragColor = vec4(phong, color.a);
+}
+
+\ambient_render.fs
+
+# version 330 core
+
+in vec2 v_uv;
+
+uniform sampler2D u_gbuffer_color;
+uniform sampler2D u_gbuffer_depth;
+uniform sampler2D u_gbuffer_normal;
+uniform vec3 u_ambient_light;
+
+uniform float u_intensity;
+uniform vec3 u_light_color;
+uniform float u_intensity;
+uniform mat4 u_shadow_vps;
+uniform sampler2D u_shadowmaps;
+uniform float u_shadow_bias;
+uniform vec3 u_light_front;
+uniform mat4 u_inv_viewprojection;
+
+
+out vec4 FragColor;
+
+void main()
+{
+	float depth = texture(u_gbuffer_depth, v_uv).r; // texture range [0,1] stored in first channel
+	if (depth >= 1.0) discard; // If the depth is so large then it belongs to the background or skybox!
+	vec4 color = texture(u_gbuffer_color, v_uv); //no need for alpha cutoff already done when filling the gbuffer
+	vec3 k = color.rgb;
+	vec3 ambient = k * u_ambient_light;
+
+
+//There is no attenuation:
+	vec3 light_intensity = u_intensity * u_light_color;
+
+// Compute fragment world position: 
+	float depth = texture(u_gbuffer_depth, v_uv).r; // texture range [0,1] stored in first channel
+	if (depth >= 1.0) discard; // If the depth is so large then it belongs to the background or skybox!
+	float depth_clip = 2.0 * depth - 1.0; // clip space range [-1, 1]
+	vec2 uv_clip = 2.0 * v_uv - 1.0;
+	vec4 clip_coords = vec4(uv_clip.x, uv_clip.y, depth_clip, 1.0);
+	vec4 not_norm_world_pos = u_inv_viewprojection * clip_coords; // from clip space to world space in homogeneous coord's
+	vec3 world_pos = not_norm_world_pos.xyz / not_norm_world_pos.w; // convert to cartesian coord's
+
+//SHADOWS:
+	float shadow = isShadow(u_shadow_vps, world_pos, u_shadowmaps, u_shadow_bias);
+	
+
+//DIFFUSE
+	vec3 L = normalize(u_light_front); // -L is the direction of the light 
+	vec3 diffuse_contrib = clamp(dot(N,L), 0.0, 1.0) * light_intensity;
+	vec3 diffuse += shadow*diffuse_contrib;
+
+//SPECULAR
+	R = reflect(-L,N);
+	V = normalize(u_camera_pos - world_pos);
+	RV = clamp(dot(R,V), 0.0, 1.0);
+	specular_contrib = pow(RV, u_shininess) * light_intensity;
+	specular += shadow*specular_contrib;
+
+
+	FragColor = vec4(ambient, color.a);
+}
+
+\volume_render.fs
+
+# version 330 core
+#include computeShadow
+
+// From quad.vs:
+in vec2 v_uv; // to sample textures
+
+// Camera Uniforms:
+uniform mat4 u_inv_viewprojection;
+uniform vec3 u_camera_pos;
+
+//Lighting Uniforms:
+uniform vec3 u_ambient_light;
+uniform float u_shininess;
+uniform vec3 u_light_pos;
+uniform vec3 u_light_color;
+uniform float u_intensity;
+uniform int u_light_type;
+uniform vec3 u_light_front;
+uniform vec2 u_light_cone;
+
+// ShadowMaps:
+uniform float u_shadow_bias;
+uniform sampler2D u_shadowmaps;
+uniform mat4 u_shadow_vps;
+
+// GBuffer textures:
+uniform sampler2D u_gbuffer_color;
+uniform sampler2D u_gbuffer_normal;
+uniform sampler2D u_gbuffer_depth;
+
+// Color Output:
+out vec4 FragColor;
+
+
+void main()
+{
+
+// Compute fragment world position: 
+	float depth = texture(u_gbuffer_depth, v_uv).r; // texture range [0,1] stored in first channel
+	if (depth >= 1.0) discard; // If the depth is so large then it belongs to the background or skybox!
+	float depth_clip = 2.0 * depth - 1.0; // clip space range [-1, 1]
+	vec2 uv_clip = 2.0 * v_uv - 1.0;
+	vec4 clip_coords = vec4(uv_clip.x, uv_clip.y, depth_clip, 1.0);
+	vec4 not_norm_world_pos = u_inv_viewprojection * clip_coords; // from clip space to world space in homogeneous coord's
+	vec3 world_pos = not_norm_world_pos.xyz / not_norm_world_pos.w; // convert to cartesian coord's
+
+// Extract Normal:
+	vec3 normal = 2.0 * texture(u_gbuffer_normal, v_uv).xyz - 1.0; //back to [-1, 1] range
+	vec3 N = normalize(normal);
+
+// Fragment's initial color -> without lighting
+	vec4 color = texture(u_gbuffer_color, v_uv);
+	vec3 k = color.rgb; //k = k_a = k_s = k_d
+	
+// Define some variables:
+	vec3 L_vec, L, light_intensity, diffuse_contrib, R, V, specular_contrib, D;
+	float d, attenuation, RV, LD, alpha_max, alpha_min, attenuation_distance, attenuation_angle, shadow;
+	vec3 phong = vec3(0.0);
+
+
+	//Cumulative variables:
+	vec3 diffuse = vec3(0.0);
+	vec3 specular = vec3(0.0);
+
+//POINT LIGHT:
+	if (u_light_type == 1) {
+		// DIFFUSE
+			L_vec = u_light_pos - world_pos;
+			L = normalize(L_vec);
+			d = length(L_vec);
+			attenuation = u_intensity/pow(d,2);
+			light_intensity = attenuation * u_light_color; // what reaches the point
+			diffuse_contrib = clamp(dot(L,N), 0.0, 1.0) * light_intensity;
+			diffuse += diffuse_contrib;
+
+		//SPECULAR:
+				R = reflect(-L, N);
+				V = normalize(u_camera_pos - world_pos);
+				RV = clamp(dot(R,V), 0.0, 1.0);
+				specular_contrib = pow(RV, u_shininess) * light_intensity;
+				specular += specular_contrib;
+		}
+//SPOT LIGHT
+	else {
+		L_vec = u_light_pos - world_pos;
+		L = normalize(L_vec);
+		D = normalize(-u_light_front); //cone center direction
+		LD = dot(-L,D);
+		alpha_max = cos(u_light_cone.y);
+		if(LD >= alpha_max){
+			alpha_min = cos(u_light_cone.x);
+			d = length(L_vec); //distance from point to light source
+			attenuation_distance = u_intensity / pow(d,2); // attenuation of light by distance between point and light source
+			attenuation_angle = clamp((LD - alpha_max) / (alpha_min - alpha_max), 0.0, 1.0);
+			attenuation = attenuation_distance * attenuation_angle;
+			light_intensity = u_light_color * attenuation;
+		//SHADOWS: only if the pixel is illuminated by the spot light
+			shadow = isShadow(u_shadow_vps, world_pos, u_shadowmaps, u_shadow_bias);
+		}
+		else {
+			light_intensity = vec3(0.0);
+			shadow = 0.0;				
+		}
+
+	//DIFFUSE
+		diffuse_contrib = clamp(dot(L,N), 0.0, 1.0) * light_intensity;
+		diffuse += shadow*diffuse_contrib;
+
+	//SPECULAR
+		R = reflect(-L,N);
+		RV = clamp(dot(R,V), 0.0, 1.0);
+		specular_contrib = pow(RV, u_shininess) * light_intensity;
+		specular += shadow*specular_contrib;
+	}
+	
 	phong += k*(diffuse + specular);
 
 	FragColor = vec4(phong, color.a);
