@@ -48,11 +48,11 @@ Renderer::Renderer(const char* shader_atlas_filename)
 	gbuffer = new GFX::FBO();
 	//int width, int height, int num_textures, int format, int type, bool use_depth_texture
 	//Vector2f size(1024, 768); Window size 
-	gbuffer->create(WIDTH,HEIGHT,2,GL_RGBA,GL_UNSIGNED_BYTE,true); //2 textures w/ depth
+	gbuffer->create(WIDTH,HEIGHT, 2, GL_RGBA, GL_UNSIGNED_BYTE, true); //2 textures w/ depth
 
 	//Light Volumes
 	lighting_FBO = new GFX::FBO();
-	lighting_FBO->create(WIDTH, HEIGHT, 1, GL_RGBA, GL_UNSIGNED_BYTE, true);
+	lighting_FBO->create(WIDTH, HEIGHT, 1, GL_RGBA, GL_UNSIGNED_BYTE, true); //1 color texture, same config as G-Buffer.
 }
 
 Renderer::~Renderer() {
@@ -249,18 +249,21 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 	}
 	gbuffer->unbind();
 
-	//QUAD:
-	GFX::Mesh* quad = GFX::Mesh::getQuad();
+	//gbuffer->color_textures[1]->toViewport();
 
-	//LIGHT VOLUMES:
+
+//QUAD:
+	GFX::Mesh* quad = GFX::Mesh::getQuad();
+	//renderQuadMesh(quad);
+
+//LIGHT VOLUMES:
 	gbuffer->depth_texture->copyTo(lighting_FBO->depth_texture);
 
-	lighting_FBO->bind();
+	lighting_FBO->bind(); //we tell OpenGL that the rendering should go to the textures of this FBO.
 	glClear(GL_COLOR_BUFFER_BIT);
-	//HERE: Compute light
+
 	//AMBIENT & DIRECTIONAL LIGHT
 	renderAmbient(quad);
-	//renderQuadMesh(quad); //deferred rendering with Phong
 
 	//RENDER LIGHT VOLUMES:
 	//renderLightVolume();
@@ -270,21 +273,22 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 		if (isInsideFrustum(&call, camera) != CLIP_OUTSIDE) renderMeshWithMaterial(call.model, call.mesh, call.material);
 	}
 
-	lighting_FBO->unbind();
+	lighting_FBO->unbind(); //reset rendering to the framebuffer.
 
 	lighting_FBO->color_textures[0]->toViewport();
 
-
 }
+
+
 void Renderer::renderAmbient(GFX::Mesh* mesh)
 {
 	GFX::Shader* shader = NULL;
 
 	glEnable(GL_DEPTH_TEST);
-	//glDepthMask(GL_FALSE);
 
 	//chose a shader
 	shader = GFX::Shader::Get("ambient_render");
+	Camera* camera = Camera::current;
 
 	assert(glGetError() == GL_NO_ERROR);
 
@@ -292,9 +296,35 @@ void Renderer::renderAmbient(GFX::Mesh* mesh)
 
 	shader->enable();
 
-	shader->setUniform("u_gbuffer_color", gbuffer->color_textures[0], 2); //after gbuffer
-	shader->setUniform("u_gbuffer_depth", lighting_FBO->depth_texture, 3);
+	shader->setUniform("u_camera_pos", camera->eye);
+	shader->setUniform("u_inv_viewprojection", camera->inverse_viewprojection_matrix);
+
+//GBuffer:
+	shader->setUniform("u_gbuffer_color", gbuffer->color_textures[0], 0); //after renderGbuffer material->bind has already used 0 and 1
+	shader->setUniform("u_gbuffer_depth", lighting_FBO->depth_texture, 1);
+	shader->setUniform("u_gbuffer_normal", gbuffer->color_textures[1], 2);
+
+//Light:
 	shader->setUniform("u_ambient_light", scene->ambient_light);
+	shader->setUniform("u_shininess", shininess);
+
+	int s = 0;
+	for (int i = 0; i < lights_list.size(); i++) {
+		if (lights_list[i]->light_type == SPOT) {
+			s += 1;
+			continue;
+		}
+		if (lights_list[i]->light_type != DIRECTIONAL) continue;
+		shader->setUniform("u_intensity", light_intensity[i]);
+		shader->setUniform("u_light_color", light_color[i]);
+		shader->setUniform("u_light_front", light_front[i]);
+		shader->setUniform("u_shadow_vps", shadow_vps[s]); //shadowmap of the directional light
+		shader->setTexture("u_shadowmaps[0]", fbos[s]->depth_texture, 3); //only need to pass the shadowmap of the spotlight
+	}
+
+//ShadowMaps
+	shader->setUniform("u_shadow_bias", shadow_bias);
+
 
 	// Render just the verticies as a wireframe
 	if (render_wireframe)
@@ -347,27 +377,30 @@ void Renderer::renderLightVolume()
 			s += 1;
 			continue; //Skip directional lights, already rendered with ambient light
 		}
+		
+		//Light Sphere:
 		float d = sqrt(lights_list[i]->intensity / attenuation_th); //the maximum distance to consider the light source is the radius (point lights)
 		light_vol.createSphere(d);
-		Matrix44 m;
+		//Its model matrix:
+		Matrix44 model;
 		vec3 pos = lights_list[i]->root.getGlobalMatrix().getTranslation();
-		m.setTranslation(pos.x, pos.y, pos.z);
+		model.setTranslation(pos.x, pos.y, pos.z);
 		float radius = lights_list[i]->max_distance;
-		m.scale(radius, radius, radius);
-		shader->setMatrix44("u_model", m);
+		model.scale(radius, radius, radius);
 
-		//UPLOAD UNIFORMS:
-			// Upload camera uniforms
+	//UPLOAD UNIFORMS:
+		
+		//Uniforms for basic.vs:
+		shader->setUniform("u_camera_pos", camera->eye);
+		shader->setUniform("u_model", model);
+		shader->setUniform("u_viewprojection", camera->viewprojection_matrix);
+
+		// Upload camera uniforms
 		shader->setUniform("u_inv_viewprojection", camera->inverse_viewprojection_matrix);
 		shader->setUniform("u_camera_pos", camera->eye);
 
-		// Upload time, for cool shader effects
-		float t = getTime();
-		shader->setUniform("u_time", t);
-
 		// Upload light uniforms
 		shader->setUniform("u_ambient_light", scene->ambient_light);
-		shader->setUniform("u_num_lights", (int)lights_list.size());
 		shader->setUniform("u_shininess", shininess);
 		shader->setUniform("u_light_pos", light_pos[i]);
 		shader->setUniform("u_intensity", light_intensity[i]);
@@ -378,7 +411,7 @@ void Renderer::renderLightVolume()
 
 		// Upload shadowmap uniform
 		shader->setUniform("u_shadow_bias", shadow_bias);
-		shader->setUniform("u_shadowmaps[0]", fbos[0]->depth_texture, 2);
+		shader->setTexture("u_shadowmaps[0]", fbos[0]->depth_texture, 2); //only need to pass the shadowmap of the spotlight
 		shader->setUniform("u_shadow_vps", shadow_vps[s]);
 
 		if (lights_list[i]->light_type == SPOT ) s += 1;

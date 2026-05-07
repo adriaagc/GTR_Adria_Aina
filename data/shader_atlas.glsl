@@ -9,7 +9,7 @@ plain basic.vs plain.fs
 fill_gbuffer basic.vs fill_gbuffer.fs
 deferred_phong quad.vs deferred_phong.fs
 ambient_render quad.vs ambient_render.fs
-volume_render quad.vs volume_render.fs
+volume_render basic.vs volume_render.fs
 
 \perturbNormal
 
@@ -271,6 +271,10 @@ void main()
 }
 
 
+
+//-------------------------------------------------------------------------//
+//-------------------------------------------------------------------------//
+
 \phong.fs
 
 #version 330 core
@@ -428,6 +432,11 @@ void main()
 
 }
 
+
+
+//-------------------------------------------------------------------------//
+//-------------------------------------------------------------------------//
+
 \plain.fs
 
 #version 330 core
@@ -449,6 +458,11 @@ void main()
 	FragColor = vec4(0.0, 0.0, 0.0, 1.0); // since glColorMask->false, any color wil be discarded
 }
 
+
+
+//-------------------------------------------------------------------------//
+//								FILL THE G-BUFFER  						   //
+//-------------------------------------------------------------------------//
 
 \fill_gbuffer.fs
 
@@ -484,6 +498,11 @@ void main()
 	gbuffer_normal_mat = normal;
 }
 
+
+
+//-------------------------------------------------------------------------//
+//								DEFERRED RENDERING 						   //
+//-------------------------------------------------------------------------//
 
 \deferred_phong.fs
 
@@ -641,27 +660,42 @@ void main()
 	FragColor = vec4(phong, color.a);
 }
 
+
+//-------------------------------------------------------------------------//
+//						AMBIENT & DIRECTIONAL LIGHT						   //
+//-------------------------------------------------------------------------//
+
 \ambient_render.fs
 
-# version 330 core
+#version 330 core
+#include computeShadow 
 
-in vec2 v_uv;
+//From quad.vs:
+in vec2 v_uv; //in texture space [0,1]
 
+//From cpp:
+uniform vec3 u_camera_pos;
+uniform mat4 u_inv_viewprojection;
+
+//GBuffer:
 uniform sampler2D u_gbuffer_color;
 uniform sampler2D u_gbuffer_depth;
 uniform sampler2D u_gbuffer_normal;
-uniform vec3 u_ambient_light;
 
+//Light:
+uniform vec3 u_ambient_light;
 uniform float u_intensity;
 uniform vec3 u_light_color;
-uniform float u_intensity;
+uniform vec3 u_light_front;
+uniform float u_shininess;
+
+//Shadowmaps:
 uniform mat4 u_shadow_vps;
 uniform sampler2D u_shadowmaps;
 uniform float u_shadow_bias;
-uniform vec3 u_light_front;
-uniform mat4 u_inv_viewprojection;
 
-
+// Replace out vec4 FragColor with:
+// layout(location = 0) out vec4 lighting_FBO; // store color info here
 out vec4 FragColor;
 
 void main()
@@ -670,47 +704,53 @@ void main()
 	if (depth >= 1.0) discard; // If the depth is so large then it belongs to the background or skybox!
 	vec4 color = texture(u_gbuffer_color, v_uv); //no need for alpha cutoff already done when filling the gbuffer
 	vec3 k = color.rgb;
-	vec3 ambient = k * u_ambient_light;
-
 
 //There is no attenuation:
 	vec3 light_intensity = u_intensity * u_light_color;
 
 // Compute fragment world position: 
-	float depth = texture(u_gbuffer_depth, v_uv).r; // texture range [0,1] stored in first channel
-	if (depth >= 1.0) discard; // If the depth is so large then it belongs to the background or skybox!
 	float depth_clip = 2.0 * depth - 1.0; // clip space range [-1, 1]
-	vec2 uv_clip = 2.0 * v_uv - 1.0;
+	vec2 uv_clip = 2.0 * v_uv - 1.0; //same, range [-1, 1]
 	vec4 clip_coords = vec4(uv_clip.x, uv_clip.y, depth_clip, 1.0);
 	vec4 not_norm_world_pos = u_inv_viewprojection * clip_coords; // from clip space to world space in homogeneous coord's
 	vec3 world_pos = not_norm_world_pos.xyz / not_norm_world_pos.w; // convert to cartesian coord's
 
 //SHADOWS:
 	float shadow = isShadow(u_shadow_vps, world_pos, u_shadowmaps, u_shadow_bias);
-	
 
-//DIFFUSE
+// Extract Normal
+	vec3 normal = 2.0 * texture(u_gbuffer_normal, v_uv).xyz - 1.0; //back to [-1, 1] range
+	vec3 N = normalize(normal);
+
+//DIRECTIONAL LIGHT:
+	//DIFFUSE
 	vec3 L = normalize(u_light_front); // -L is the direction of the light 
 	vec3 diffuse_contrib = clamp(dot(N,L), 0.0, 1.0) * light_intensity;
-	vec3 diffuse += shadow*diffuse_contrib;
+	vec3 diffuse = shadow*diffuse_contrib;
 
-//SPECULAR
-	R = reflect(-L,N);
-	V = normalize(u_camera_pos - world_pos);
-	RV = clamp(dot(R,V), 0.0, 1.0);
-	specular_contrib = pow(RV, u_shininess) * light_intensity;
-	specular += shadow*specular_contrib;
+	//SPECULAR
+	vec3 R = reflect(-L,N);
+	vec3 V = normalize(u_camera_pos - world_pos);
+	float RV = clamp(dot(R,V), 0.0, 1.0);
+	vec3 specular_contrib = pow(RV, u_shininess) * light_intensity;
+	vec3 specular = shadow*specular_contrib;
 
+//AMBIENT + DIRECTIONAL W/ SHADOWS:
 
-	FragColor = vec4(ambient, color.a);
+	vec3 phong = k*(u_ambient_light + diffuse + specular);
+	FragColor = vec4(phong, color.a);
 }
+
+//-------------------------------------------------------------------------//
+//								LIGHT VOLUMES     						   //
+//-------------------------------------------------------------------------//
 
 \volume_render.fs
 
 # version 330 core
 #include computeShadow
 
-// From quad.vs:
+// From basic.vs:
 in vec2 v_uv; // to sample textures
 
 // Camera Uniforms:
