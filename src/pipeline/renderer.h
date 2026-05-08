@@ -117,6 +117,7 @@ namespace SCN {
 		//Light Volumes:
 		void renderAmbient(GFX::Mesh* mesh);
 		void renderLightVolume();
+		void renderLightSpheres();
 
 		void showUI();
 	};

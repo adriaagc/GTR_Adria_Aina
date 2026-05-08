@@ -10,6 +10,7 @@ fill_gbuffer basic.vs fill_gbuffer.fs
 deferred_phong quad.vs deferred_phong.fs
 ambient_render quad.vs ambient_render.fs
 volume_render basic.vs volume_render.fs
+sphere_render basic.vs sphere_render.fs
 
 \perturbNormal
 
@@ -802,14 +803,9 @@ void main()
 	vec3 k = color.rgb; //k = k_a = k_s = k_d
 	
 // Define some variables:
-	vec3 L_vec, L, light_intensity, diffuse_contrib, R, V, specular_contrib, D;
+	vec3 L_vec, L, light_intensity, diffuse_contrib, R, V, specular_contrib, D, diffuse, specular, phong;
 	float d, attenuation, RV, LD, alpha_max, alpha_min, attenuation_distance, attenuation_angle, shadow;
-	vec3 phong = vec3(0.0);
 
-
-	//Cumulative variables:
-	vec3 diffuse = vec3(0.0);
-	vec3 specular = vec3(0.0);
 
 //POINT LIGHT:
 	if (u_light_type == 1) {
@@ -820,14 +816,14 @@ void main()
 			attenuation = u_intensity/pow(d,2);
 			light_intensity = attenuation * u_light_color; // what reaches the point
 			diffuse_contrib = clamp(dot(L,N), 0.0, 1.0) * light_intensity;
-			diffuse += diffuse_contrib;
+			diffuse = diffuse_contrib;
 
 		//SPECULAR:
-				R = reflect(-L, N);
-				V = normalize(u_camera_pos - world_pos);
-				RV = clamp(dot(R,V), 0.0, 1.0);
-				specular_contrib = pow(RV, u_shininess) * light_intensity;
-				specular += specular_contrib;
+			R = reflect(-L, N);
+			V = normalize(u_camera_pos - world_pos);
+			RV = clamp(dot(R,V), 0.0, 1.0);
+			specular_contrib = pow(RV, u_shininess) * light_intensity;
+			specular = specular_contrib;
 		}
 //SPOT LIGHT
 	else {
@@ -853,16 +849,27 @@ void main()
 
 	//DIFFUSE
 		diffuse_contrib = clamp(dot(L,N), 0.0, 1.0) * light_intensity;
-		diffuse += shadow*diffuse_contrib;
+		diffuse = shadow*diffuse_contrib;
 
 	//SPECULAR
 		R = reflect(-L,N);
+		V = normalize(u_camera_pos - world_pos);
 		RV = clamp(dot(R,V), 0.0, 1.0);
 		specular_contrib = pow(RV, u_shininess) * light_intensity;
-		specular += shadow*specular_contrib;
+		specular = shadow*specular_contrib;
 	}
 	
-	phong += k*(diffuse + specular);
+	phong = k*(diffuse + specular);
 
 	FragColor = vec4(phong, color.a);
+}
+
+
+\sphere_render.fs
+
+out vec4 FragColor;
+
+void main()
+{
+	FragColor = vec4(1.0, 0.0, 0.0, 1.0); //paint sphere red
 }

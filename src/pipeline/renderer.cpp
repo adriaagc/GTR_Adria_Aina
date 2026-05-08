@@ -22,6 +22,7 @@ using namespace SCN;
 
 //some globals
 GFX::Mesh sphere;
+GFX::Mesh light_vol;
 
 Renderer::Renderer(const char* shader_atlas_filename)
 {
@@ -34,8 +35,13 @@ Renderer::Renderer(const char* shader_atlas_filename)
 		exit(1);
 	GFX::checkGLErrors();
 
+	//Skybox:
 	sphere.createSphere(1.0f);
 	sphere.uploadToVRAM();
+
+	//Light Volume:
+	light_vol.createSphere(1.0f);
+	light_vol.uploadToVRAM();
 
 	//fbo = new GFX::FBO();
 	//fbo->setDepthOnly(SHADOW_RES, SHADOW_RES);
@@ -221,7 +227,7 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 	//PREAPARE LIGHT UNIFORMS:
 	fillLightArrays(); //to fill the arrays containing light info
 
-	//SHADOW MAPS:
+//SHADOW MAPS:
 	createLightCameras();
 
 	int i = 0;
@@ -237,7 +243,7 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 		i += 1;
 	}
 
-	//G-BUFFER: 
+//G-BUFFER: 
 	gbuffer->bind();
 	// Per saber que guarda més d'una textura 
 	GLenum buffers[] = { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1 };
@@ -249,8 +255,7 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 	}
 	gbuffer->unbind();
 
-	//gbuffer->color_textures[1]->toViewport();
-
+	//gbuffer->depth_texture->toViewport();
 
 //QUAD:
 	GFX::Mesh* quad = GFX::Mesh::getQuad();
@@ -267,6 +272,7 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 
 	//RENDER LIGHT VOLUMES:
 	//renderLightVolume();
+	renderLightSpheres();
 
 	//render translucent list
 	for (sRenderable call : translucent_list) {
@@ -276,6 +282,7 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 	lighting_FBO->unbind(); //reset rendering to the framebuffer.
 
 	lighting_FBO->color_textures[0]->toViewport();
+	//lighting_FBO->depth_texture->toViewport();
 
 }
 
@@ -319,7 +326,7 @@ void Renderer::renderAmbient(GFX::Mesh* mesh)
 		shader->setUniform("u_light_color", light_color[i]);
 		shader->setUniform("u_light_front", light_front[i]);
 		shader->setUniform("u_shadow_vps", shadow_vps[s]); //shadowmap of the directional light
-		shader->setTexture("u_shadowmaps[0]", fbos[s]->depth_texture, 3); //only need to pass the shadowmap of the spotlight
+		shader->setTexture("u_shadowmaps", fbos[s]->depth_texture, 3); //only need to pass the shadowmap of the spotlight
 	}
 
 //ShadowMaps
@@ -339,18 +346,72 @@ void Renderer::renderAmbient(GFX::Mesh* mesh)
 	//set the render state as it was before to avoid problems with future renders
 	glDisable(GL_BLEND);
 	glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+	assert(glGetError() == GL_NO_ERROR);
+
+}
+
+void Renderer::renderLightSpheres()
+{
+	GFX::Shader* shader = NULL;
+	Camera* camera = Camera::current;
+	
+	/*glDisable(GL_BLEND);
+	glEnable(GL_DEPTH_TEST);
+	glDepthFunc(GL_LESS);
+	glDepthMask(GL_TRUE);
+	glEnable(GL_CULL_FACE);
+	glCullFace(GL_BACK);*/
+
+	glDisable(GL_DEPTH_TEST);
+
+	shader = GFX::Shader::Get("sphere_render");
+	if (!shader)
+		return;
+	
+	shader->enable();
+
+	for (int i = 0; i < lights_list.size(); i++) {
+		if (lights_list[i]->light_type == DIRECTIONAL) {
+			continue; //Skip directional lights, already rendered with ambient light
+		}
+		//Its model matrix:
+		Matrix44 model;
+		vec3 pos = lights_list[i]->root.getGlobalMatrix().getTranslation();
+		model.setTranslation(pos.x, pos.y, pos.z);
+		float radius = lights_list[i]->max_distance;
+		model.scale(radius, radius, radius);
+
+		shader->setUniform("u_camera_pos", camera->eye);
+		shader->setUniform("u_viewprojection", camera->viewprojection_matrix);
+		shader->setUniform("u_model", model);
+
+		light_vol.render(GL_TRIANGLES);
+
+	}
+	shader->disable();
+
+	glDisable(GL_BLEND);
+	glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+	glEnable(GL_DEPTH_TEST);
 
 }
 
 void Renderer::renderLightVolume()
 {
-	assert(glGetError() == GL_NO_ERROR);
 
 	//define locals to simplify coding
 	GFX::Shader* shader = NULL;
 	Camera* camera = Camera::current;
 
-	glEnable(GL_DEPTH_TEST);
+	//OpenGL config
+	glDepthFunc(GL_GREATER); //only render those fragments inside the sphere (depth_frag > depth_buffer) that is geometry is in front of sphere's backaface
+	glDepthMask(GL_FALSE); //do not modify/write to the depthbuffer. (avoid overwriting the scene with the light volumes)
+	glEnable(GL_DEPTH_TEST); //however, we still want that the depth of the sphere is compared against the depth of the scene (already stored)
+	glBlendFunc(GL_ONE, GL_ONE); //additive blending: sum the computed color in FragColor to the prev color.
+	glEnable(GL_BLEND); //so that glBlendFunc(GL_ONE, GL_ONE) has effect otherwise FragColor would replace the prev color.
+	glFrontFace(GL_CW);
+
+	assert(glGetError() == GL_NO_ERROR);
 
 	//chose a shader
 	shader = GFX::Shader::Get("volume_render");
@@ -360,17 +421,6 @@ void Renderer::renderLightVolume()
 
 	shader->enable();
 
-	//OpenGL config
-	glDepthFunc(GL_GREATER); //only render those fragments inside the fragment (depth_frag > depth_buffer)
-	glDepthMask(GL_FALSE); //do not modify/write to the depthbuffer. (avoid overwriting the scene with the light volumes)
-	glBlendFunc(GL_ONE, GL_ONE); //additive blending: sum the computed color in FragColor to the prev color.
-	glEnable(GL_BLEND); //so that glBlendFunc(GL_ONE, GL_ONE) has effect otherwise FragColor would replace the prev color.
-	glFrontFace(GL_CW);
-
-	//create light volume mesh
-	GFX::Mesh light_vol;
-	float attenuation_th = 0.01f; //if intensity/d^2 < th -> the light no longer contributes
-
 	int s = 0;
 	for (int i = 0; i < lights_list.size(); i++) {
 		if (lights_list[i]->light_type == DIRECTIONAL) {
@@ -378,9 +428,6 @@ void Renderer::renderLightVolume()
 			continue; //Skip directional lights, already rendered with ambient light
 		}
 		
-		//Light Sphere:
-		float d = sqrt(lights_list[i]->intensity / attenuation_th); //the maximum distance to consider the light source is the radius (point lights)
-		light_vol.createSphere(d);
 		//Its model matrix:
 		Matrix44 model;
 		vec3 pos = lights_list[i]->root.getGlobalMatrix().getTranslation();
@@ -397,7 +444,6 @@ void Renderer::renderLightVolume()
 
 		// Upload camera uniforms
 		shader->setUniform("u_inv_viewprojection", camera->inverse_viewprojection_matrix);
-		shader->setUniform("u_camera_pos", camera->eye);
 
 		// Upload light uniforms
 		shader->setUniform("u_ambient_light", scene->ambient_light);
@@ -411,15 +457,15 @@ void Renderer::renderLightVolume()
 
 		// Upload shadowmap uniform
 		shader->setUniform("u_shadow_bias", shadow_bias);
-		shader->setTexture("u_shadowmaps[0]", fbos[0]->depth_texture, 2); //only need to pass the shadowmap of the spotlight
+		//shader->setUniform("u_shadowmaps", fbos[s]->depth_texture, 0); //only need to pass the shadowmap of the spotlight
 		shader->setUniform("u_shadow_vps", shadow_vps[s]);
 
 		if (lights_list[i]->light_type == SPOT ) s += 1;
 
 		// Bind the GBuffers
-		shader->setTexture("u_gbuffer_color", gbuffer->color_textures[0], 3);
-		shader->setTexture("u_gbuffer_normal", gbuffer->color_textures[1], 4);
-		shader->setTexture("u_gbuffer_depth", gbuffer->depth_texture, 5);
+		shader->setUniform("u_gbuffer_color", gbuffer->color_textures[0], 1);
+		shader->setUniform("u_gbuffer_normal", gbuffer->color_textures[1], 2);
+		shader->setUniform("u_gbuffer_depth", gbuffer->depth_texture, 3);
 
 		// Render just the verticies as a wireframe
 		if (render_wireframe)
