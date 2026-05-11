@@ -195,6 +195,7 @@ void Renderer::createLightCameras()
 
 void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 {
+	//camera->enable();
 	this->scene = scene;
 	setupScene();
 
@@ -271,8 +272,8 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 	renderAmbient(quad);
 
 	//RENDER LIGHT VOLUMES:
-	//renderLightVolume();
-	renderLightSpheres();
+	renderLightVolume();
+	//renderLightSpheres();
 
 	//render translucent list
 	for (sRenderable call : translucent_list) {
@@ -291,7 +292,7 @@ void Renderer::renderAmbient(GFX::Mesh* mesh)
 {
 	GFX::Shader* shader = NULL;
 
-	glEnable(GL_DEPTH_TEST);
+	glDisable(GL_DEPTH_TEST);
 
 	//chose a shader
 	shader = GFX::Shader::Get("ambient_render");
@@ -377,8 +378,8 @@ void Renderer::renderLightSpheres()
 		//Its model matrix:
 		Matrix44 model;
 		vec3 pos = lights_list[i]->root.getGlobalMatrix().getTranslation();
-		model.setTranslation(pos.x, pos.y, pos.z);
 		float radius = lights_list[i]->max_distance;
+		model.setTranslation(pos.x, pos.y, pos.z);
 		model.scale(radius, radius, radius);
 
 		shader->setUniform("u_camera_pos", camera->eye);
@@ -398,12 +399,15 @@ void Renderer::renderLightSpheres()
 
 void Renderer::renderLightVolume()
 {
-
 	//define locals to simplify coding
 	GFX::Shader* shader = NULL;
 	Camera* camera = Camera::current;
 
 	//OpenGL config
+
+
+	//glDisable(GL_CULL_FACE);
+
 	glDepthFunc(GL_GREATER); //only render those fragments inside the sphere (depth_frag > depth_buffer) that is geometry is in front of sphere's backaface
 	glDepthMask(GL_FALSE); //do not modify/write to the depthbuffer. (avoid overwriting the scene with the light volumes)
 	glEnable(GL_DEPTH_TEST); //however, we still want that the depth of the sphere is compared against the depth of the scene (already stored)
@@ -431,8 +435,8 @@ void Renderer::renderLightVolume()
 		//Its model matrix:
 		Matrix44 model;
 		vec3 pos = lights_list[i]->root.getGlobalMatrix().getTranslation();
-		model.setTranslation(pos.x, pos.y, pos.z);
 		float radius = lights_list[i]->max_distance;
+		model.setTranslation(pos.x, pos.y, pos.z);
 		model.scale(radius, radius, radius);
 
 	//UPLOAD UNIFORMS:
@@ -465,7 +469,8 @@ void Renderer::renderLightVolume()
 		// Bind the GBuffers
 		shader->setUniform("u_gbuffer_color", gbuffer->color_textures[0], 1);
 		shader->setUniform("u_gbuffer_normal", gbuffer->color_textures[1], 2);
-		shader->setUniform("u_gbuffer_depth", gbuffer->depth_texture, 3);
+		shader->setUniform("u_gbuffer_depth", lighting_FBO->depth_texture, 3);
+		//shader->setUniform("u_gbuffer_depth", gbuffer->depth_texture, 3);
 
 		// Render just the verticies as a wireframe
 		if (render_wireframe)
@@ -484,6 +489,7 @@ void Renderer::renderLightVolume()
 	glDepthFunc(GL_LESS);
 	glDepthMask(GL_TRUE);
 	glFrontFace(GL_CCW);
+
 
 }
 

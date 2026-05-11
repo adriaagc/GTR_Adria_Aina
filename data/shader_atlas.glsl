@@ -750,6 +750,8 @@ void main()
 
 # version 330 core
 #include computeShadow
+#define WIDTH 1024
+#define HEIGHT 768
 
 // From basic.vs:
 in vec2 v_uv; // to sample textures
@@ -784,22 +786,23 @@ out vec4 FragColor;
 
 void main()
 {
+	vec2 screen_size_uv = gl_FragCoord.xy / vec2(WIDTH, HEIGHT);
 
 // Compute fragment world position: 
-	float depth = texture(u_gbuffer_depth, v_uv).r; // texture range [0,1] stored in first channel
+	float depth = texture(u_gbuffer_depth, screen_size_uv).r; // texture range [0,1] stored in first channel
 	if (depth >= 1.0) discard; // If the depth is so large then it belongs to the background or skybox!
 	float depth_clip = 2.0 * depth - 1.0; // clip space range [-1, 1]
-	vec2 uv_clip = 2.0 * v_uv - 1.0;
+	vec2 uv_clip = 2.0 * screen_size_uv - 1.0;
 	vec4 clip_coords = vec4(uv_clip.x, uv_clip.y, depth_clip, 1.0);
 	vec4 not_norm_world_pos = u_inv_viewprojection * clip_coords; // from clip space to world space in homogeneous coord's
 	vec3 world_pos = not_norm_world_pos.xyz / not_norm_world_pos.w; // convert to cartesian coord's
 
 // Extract Normal:
-	vec3 normal = 2.0 * texture(u_gbuffer_normal, v_uv).xyz - 1.0; //back to [-1, 1] range
+	vec3 normal = 2.0 * texture(u_gbuffer_normal, screen_size_uv).xyz - 1.0; //back to [-1, 1] range
 	vec3 N = normalize(normal);
 
 // Fragment's initial color -> without lighting
-	vec4 color = texture(u_gbuffer_color, v_uv);
+	vec4 color = texture(u_gbuffer_color, screen_size_uv);
 	vec3 k = color.rgb; //k = k_a = k_s = k_d
 	
 // Define some variables:
@@ -861,6 +864,7 @@ void main()
 	
 	phong = k*(diffuse + specular);
 
+	// FragColor = vec4(vec3(d * 0.01), 1.0);
 	FragColor = vec4(phong, color.a);
 }
 

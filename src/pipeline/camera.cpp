@@ -1,4 +1,4 @@
-#include "camera.h"
+﻿#include "camera.h"
 
 #include <iostream>
 #include "../utils/utils.h"
@@ -19,6 +19,9 @@ void Camera::enable()
 	updateViewMatrix();
 	updateProjectionMatrix();
 
+	//inverse_viewprojection_matrix = viewprojection_matrix; // copia primer
+	//inverse_viewprojection_matrix.inverse();
+
 	extractFrustum(); //not necessary as it is updated when matrices are updated
 }
 
@@ -29,6 +32,8 @@ void Camera::updateViewMatrix()
 	front = (center - eye).normalize();
 
 	viewprojection_matrix = view_matrix * projection_matrix;
+	//viewprojection_matrix = projection_matrix * view_matrix; // ← ordre correcte
+
 	inverse_viewprojection_matrix = viewprojection_matrix;
 	inverse_viewprojection_matrix.inverse();
 
