@@ -477,19 +477,21 @@ in vec3 v_world_position;
 // Uniforms from mateiral->bind:
 uniform sampler2D u_texture; // color texture
 uniform sampler2D u_normalmap;
+uniform sampler2D u_MetalicRoughness;
 uniform float u_alpha_cutoff;
 uniform vec4 u_color;
 
 // Replace out vec4 FragColor with:
 layout(location = 0) out vec4 gbuffer_albedo; // store color info here
 layout(location = 1) out vec4 gbuffer_normal_mat; // store normal info here
+layout(location = 2) out vec4 gbuffer_metallic_roughness; // store metallic and roughness info here
 
 void main()
 {
 	vec4 color = u_color;
 	color *= texture(u_texture, v_uv);
 	if(color.a < u_alpha_cutoff) 
-		discard;
+		discard;s
 
 	vec3 nm_color = normalize((texture(u_normalmap, v_uv).xyz * 2.0) - 1.0); //color sampled from the normalmap converted to a range [-1,1]
 	vec3 N = perturbNormal(normalize(v_normal), v_world_position, v_uv, nm_color); // rarnge [-1, 1]
@@ -497,9 +499,12 @@ void main()
 	vec4 normal = vec4(N, 1.0); // if alpha = 0 -> transparent
 	gbuffer_albedo = color;
 	gbuffer_normal_mat = normal;
+
+	//METALNESS PARAMETER
+	vec4 metallic_roughness = texture(u_MetalicRoughness, v_uv);
+	gbuffer_metallic_roughness = metallic_roughness;
+	// gbuffer_metallic_roughness = vec4(1.0,0.0,0.0,1.0);
 }
-
-
 
 //-------------------------------------------------------------------------//
 //								DEFERRED RENDERING 						   //
@@ -750,8 +755,8 @@ void main()
 
 # version 330 core
 #include computeShadow
-#define WIDTH 1024
-#define HEIGHT 768
+// #define WIDTH 1024
+// #define HEIGHT 768
 
 // From basic.vs:
 in vec2 v_uv; // to sample textures
@@ -780,13 +785,15 @@ uniform sampler2D u_gbuffer_color;
 uniform sampler2D u_gbuffer_normal;
 uniform sampler2D u_gbuffer_depth;
 
+uniform vec2 size_screen;
+
 // Color Output:
 out vec4 FragColor;
 
 
 void main()
 {
-	vec2 screen_size_uv = gl_FragCoord.xy / vec2(WIDTH, HEIGHT);
+	vec2 screen_size_uv = gl_FragCoord.xy / size_screen; // to sample the gbuffer textures
 
 // Compute fragment world position: 
 	float depth = texture(u_gbuffer_depth, screen_size_uv).r; // texture range [0,1] stored in first channel

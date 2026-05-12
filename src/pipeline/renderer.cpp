@@ -54,7 +54,9 @@ Renderer::Renderer(const char* shader_atlas_filename)
 	gbuffer = new GFX::FBO();
 	//int width, int height, int num_textures, int format, int type, bool use_depth_texture
 	//Vector2f size(1024, 768); Window size 
-	gbuffer->create(WIDTH,HEIGHT, 2, GL_RGBA, GL_UNSIGNED_BYTE, true); //2 textures w/ depth
+	//gbuffer->create(WIDTH,HEIGHT, 2, GL_RGBA, GL_UNSIGNED_BYTE, true); //2 textures w/ depth
+	gbuffer->create(WIDTH, HEIGHT, 3, GL_RGBA, GL_UNSIGNED_BYTE, true); //2 textures w/ depth
+
 
 	//Light Volumes
 	lighting_FBO = new GFX::FBO();
@@ -237,7 +239,7 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 		glColorMask(false, false, false, false);
 		glClear(GL_DEPTH_BUFFER_BIT);
 		for (sRenderable& call : opaque_list) {
-			if (isInsideFrustum(&call, &light_cameras[i]) != CLIP_OUTSIDE) renderPlain(&light_cameras[i], call.model, call.mesh, call.material);
+			if (isInsideFrustum(&call, &light_cameras[i]) != CLIP_OUTSIDE) renderPlain(&light_cameras[i], call.model, call.mesh, call.material); 
 		}
 		glColorMask(true, true, true, true);
 		fbo->unbind();
@@ -247,19 +249,19 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 //G-BUFFER: 
 	gbuffer->bind();
 	// Per saber que guarda més d'una textura 
-	GLenum buffers[] = { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1 };
-	glDrawBuffers(2, buffers);
+	GLenum buffers[] = { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2 };
+	glDrawBuffers(3, buffers);
 
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT); // Clear textures from prev frame
 	for (sRenderable& call : opaque_list) {
-		if (isInsideFrustum(&call, camera) != CLIP_OUTSIDE) renderGBuffer(call.model, call.mesh, call.material);
+		if (isInsideFrustum(&call, camera) != CLIP_OUTSIDE) renderGBuffer(call.model, call.mesh, call.material); 
 	}
 	gbuffer->unbind();
 
 	//gbuffer->depth_texture->toViewport();
 
 //QUAD:
-	GFX::Mesh* quad = GFX::Mesh::getQuad();
+	GFX::Mesh* qusad = GFX::Mesh::getQuad();
 	//renderQuadMesh(quad);
 
 //LIGHT VOLUMES:
@@ -471,6 +473,8 @@ void Renderer::renderLightVolume()
 		shader->setUniform("u_gbuffer_normal", gbuffer->color_textures[1], 2);
 		shader->setUniform("u_gbuffer_depth", lighting_FBO->depth_texture, 3);
 		//shader->setUniform("u_gbuffer_depth", gbuffer->depth_texture, 3);
+
+		shader->setUniform("size_screen",vec2(WIDTH,HEIGHT));
 
 		// Render just the verticies as a wireframe
 		if (render_wireframe)
