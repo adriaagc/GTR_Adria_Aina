@@ -1015,16 +1015,13 @@ void main()
 	vec3 k = color.rgb; //k = k_a = k_s = k_d
 
 // Define some variables:
- 	vec3 L_vec, L, light_intensity, diffuse_contrib, R, V, specular_contrib, D;
-	float d, attenuation, RV, LD, alpha_max, alpha_min, attenuation_distance, attenuation_angle, shadow;
+ 	vec3 L_vec, L, light_intensity, diffuse_contrib, R, V, specular_contrib, D, outgoing_light;
+	float d, attenuation, LN, RV, LD, alpha_max, alpha_min, attenuation_distance, attenuation_angle, shadow;
 
 //AMBIENT LIGHT:
 	vec3 BRDFcolor = u_ambient_light * k;
-	vec3 outgoing_light = vec3(0.0);
 
-	//CUMULATIVE VARIABLES:
-	vec3 diffuse = vec3(0.0);
-	vec3 specular = vec3(0.0);
+//CUMULATIVE VARIABLES:
 	int s = 0; // to know in which shadowmap we are.
 
 
@@ -1033,7 +1030,7 @@ void main()
 
 	// POINT LIGHT
 		if (u_light_type[i] == 1) {
-		// Li(p,L)
+		// Compute the incident light, Li(p,L):
 			L_vec = u_light_pos[i] - world_pos;
 			L = normalize(L_vec);
 			d = length(L_vec);
@@ -1041,26 +1038,23 @@ void main()
 			light_intensity = attenuation * u_light_color[i]; // what reaches the point
 			V = normalize(u_camera_pos - world_pos);
 			
-			float LN = clamp(dot(L,N), 0.0, 1.0);
+			LN = clamp(dot(L,N), 0.0, 1.0);
 			
 			outgoing_light = cookTorrance(L, V, k, metallic, roughness, N) * light_intensity * LN;	
 		}
 	
-	//DIRECTION LIGHT 
+	//DIRECTIONAL LIGHT 
 		else if (u_light_type[i] == 3) {
-		//There is no attenuation:
+		//There is no attenuation so the incident light is:
 			light_intensity = u_intensity[i] * u_light_color[i];
-
 		//SHADOWS:
 			shadow = isShadow(u_shadow_vps[s], world_pos, u_shadowmaps[s], u_shadow_bias);
 			s += 1;
 
-		//Li(p,L)
-			L_vec = u_light_pos[i] - world_pos;
-			L = normalize(L_vec);
+			L = normalize(u_light_front[i]); // -L is the direction of the light 
 			V = normalize(u_camera_pos - world_pos);
 
-			float LN = clamp(dot(L,N), 0.0, 1.0);
+			LN = clamp(dot(L,N), 0.0, 1.0);
 			outgoing_light = cookTorrance(L, V, k, metallic, roughness, N) * light_intensity * LN * shadow;	
 		}
 
@@ -1088,7 +1082,7 @@ void main()
 
 			s += 1;
 
-		//Li(p,L)
+		//Cook-Torrance
 			V = normalize(u_camera_pos - world_pos);
 			float LN = clamp(dot(L,N), 0.0, 1.0);
 			outgoing_light = cookTorrance(L, V, k, metallic, roughness, N) * light_intensity * LN * shadow;

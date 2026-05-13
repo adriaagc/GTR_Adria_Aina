@@ -262,33 +262,33 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 
 //QUAD:
 	GFX::Mesh* quad = GFX::Mesh::getQuad();
-	//renderQuadMesh(quad);
+	renderQuadMesh(quad);
 
 //LIGHT VOLUMES:
-	gbuffer->depth_texture->copyTo(lighting_FBO->depth_texture);
+	//gbuffer->depth_texture->copyTo(lighting_FBO->depth_texture);
 
-	lighting_FBO->bind(); //we tell OpenGL that the rendering should go to the textures of this FBO.
-	glClear(GL_COLOR_BUFFER_BIT);
+	//lighting_FBO->bind(); //we tell OpenGL that the rendering should go to the textures of this FBO.
+	//glClear(GL_COLOR_BUFFER_BIT);
 
-	//AMBIENT & DIRECTIONAL LIGHT
-	//renderAmbient(quad);
+	////AMBIENT & DIRECTIONAL LIGHT
+	////renderAmbient(quad);
 
-	//RENDER LIGHT VOLUMES:
-	//renderLightVolume();
-	//renderLightSpheres();
+	////RENDER LIGHT VOLUMES:
+	////renderLightVolume();
+	////renderLightSpheres();
 
-	//RENDER DEFERRED AMB COOK
-	renderCookDeferred(quad);	
+	////RENDER DEFERRED AMB COOK
+	//renderCookDeferred(quad);	
 
-	//render translucent list
-	for (sRenderable call : translucent_list) {
-		if (isInsideFrustum(&call, camera) != CLIP_OUTSIDE) renderMeshWithMaterial(call.model, call.mesh, call.material);
-	}
+	////render translucent list
+	//for (sRenderable call : translucent_list) {
+	//	if (isInsideFrustum(&call, camera) != CLIP_OUTSIDE) renderMeshWithMaterial(call.model, call.mesh, call.material);
+	//}
 
-	lighting_FBO->unbind(); //reset rendering to the framebuffer.
+	//lighting_FBO->unbind(); //reset rendering to the framebuffer.
 
-	lighting_FBO->color_textures[0]->toViewport();
-	//lighting_FBO->depth_texture->toViewport();
+	//lighting_FBO->color_textures[0]->toViewport();
+	////lighting_FBO->depth_texture->toViewport();
 
 }
 
@@ -726,7 +726,9 @@ void Renderer::renderQuadMesh(GFX::Mesh* mesh)
 	glEnable(GL_DEPTH_TEST);
 
 	//chose a shader
-	shader = GFX::Shader::Get("deferred_phong");
+	//shader = GFX::Shader::Get("deferred_phong");
+	shader = GFX::Shader::Get("deferred_cook");
+
 
 	assert(glGetError() == GL_NO_ERROR);
 
@@ -765,6 +767,7 @@ void Renderer::renderQuadMesh(GFX::Mesh* mesh)
 	shader->setTexture("u_gbuffer_color", gbuffer->color_textures[0], 4);
 	shader->setTexture("u_gbuffer_normal", gbuffer->color_textures[1], 5);
 	shader->setTexture("u_gbuffer_depth", gbuffer->depth_texture, 6);
+	shader->setTexture("u_gbuffer_metallic_roughness", gbuffer->color_textures[2], 7);
 
 	// Render just the verticies as a wireframe
 	if (render_wireframe)
