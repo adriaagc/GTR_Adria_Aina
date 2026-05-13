@@ -261,7 +261,7 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 	//gbuffer->depth_texture->toViewport();
 
 //QUAD:
-	GFX::Mesh* qusad = GFX::Mesh::getQuad();
+	GFX::Mesh* quad = GFX::Mesh::getQuad();
 	//renderQuadMesh(quad);
 
 //LIGHT VOLUMES:
@@ -271,11 +271,14 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 	glClear(GL_COLOR_BUFFER_BIT);
 
 	//AMBIENT & DIRECTIONAL LIGHT
-	renderAmbient(quad);
+	//renderAmbient(quad);
 
 	//RENDER LIGHT VOLUMES:
-	renderLightVolume();
+	//renderLightVolume();
 	//renderLightSpheres();
+
+	//RENDER DEFERRED AMB COOK
+	renderCookDeferred(quad);	
 
 	//render translucent list
 	for (sRenderable call : translucent_list) {
@@ -762,6 +765,76 @@ void Renderer::renderQuadMesh(GFX::Mesh* mesh)
 	shader->setTexture("u_gbuffer_color", gbuffer->color_textures[0], 4);
 	shader->setTexture("u_gbuffer_normal", gbuffer->color_textures[1], 5);
 	shader->setTexture("u_gbuffer_depth", gbuffer->depth_texture, 6);
+
+	// Render just the verticies as a wireframe
+	if (render_wireframe)
+		glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+
+	//do the draw call that renders the mesh into the screen
+	mesh->render(GL_TRIANGLES);
+
+	//disable shader
+	shader->disable();
+
+	//set the render state as it was before to avoid problems with future renders
+	glDisable(GL_BLEND);
+	glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+}
+
+void Renderer::renderCookDeferred(GFX::Mesh* mesh)
+{
+	//in case there is nothing to do
+	if (!mesh || !mesh->getNumVertices())
+		return;
+	assert(glGetError() == GL_NO_ERROR);
+
+	//define locals to simplify coding
+	GFX::Shader* shader = NULL;
+	Camera* camera = Camera::current;
+
+	glEnable(GL_DEPTH_TEST);
+
+	//chose a shader
+	shader = GFX::Shader::Get("deferred_cook");
+
+	assert(glGetError() == GL_NO_ERROR);
+
+	//no shader? then nothing to render
+	if (!shader)
+		return;
+	shader->enable();
+
+	//UPLOAD UNIFORMS:
+		// Upload camera uniforms
+	shader->setUniform("u_inv_viewprojection", camera->inverse_viewprojection_matrix);
+	shader->setUniform("u_camera_pos", camera->eye);
+
+	// Upload time, for cool shader effects
+	float t = getTime();
+	shader->setUniform("u_time", t);
+
+	// Upload light uniforms
+	shader->setUniform("u_ambient_light", scene->ambient_light);
+	shader->setUniform("u_num_lights", (int)lights_list.size());
+	shader->setUniform("u_shininess", shininess);
+	shader->setUniform3Array("u_light_pos", (float*)light_pos, MAX_LIGHTS);
+	shader->setUniform1Array("u_intensity", light_intensity, MAX_LIGHTS);
+	shader->setUniform3Array("u_light_color", (float*)light_color, MAX_LIGHTS);
+	shader->setUniform1Array("u_light_type", light_type, MAX_LIGHTS);
+	shader->setUniform3Array("u_light_front", (float*)light_front, MAX_LIGHTS);
+	shader->setUniform2Array("u_light_cone", (float*)light_cone, MAX_LIGHTS);
+
+	// Upload shadowmap uniform
+	shader->setUniform("u_shadow_bias", shadow_bias);
+	shader->setUniform("u_shadowmaps[0]", fbos[0]->depth_texture, 2);
+	shader->setUniform("u_shadowmaps[1]", fbos[1]->depth_texture, 3);
+	shader->setMatrix44Array("u_shadow_vps", shadow_vps, MAX_SHADOWS);
+
+	// Bind the GBuffers
+	shader->setTexture("u_gbuffer_color", gbuffer->color_textures[0], 4);
+	shader->setTexture("u_gbuffer_normal", gbuffer->color_textures[1], 5);
+	shader->setTexture("u_gbuffer_depth", gbuffer->depth_texture, 6);
+	shader->setTexture("u_gbuffer_metallic_roughness", gbuffer->color_textures[2], 7);
 
 	// Render just the verticies as a wireframe
 	if (render_wireframe)

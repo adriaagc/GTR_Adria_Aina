@@ -109,6 +109,7 @@ namespace SCN {
 
 		//Phong with deferred rendering
 		void renderQuadMesh(GFX::Mesh* mesh);
+		void renderCookDeferred(GFX::Mesh* mesh);
 
 		//to fill the framebuffer without drawing from the perspective of the light
 		void renderPlain(Camera* light_cam, const Matrix44 model, GFX::Mesh* mesh, SCN::Material* material);

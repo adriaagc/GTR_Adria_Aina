@@ -11,6 +11,8 @@ deferred_phong quad.vs deferred_phong.fs
 ambient_render quad.vs ambient_render.fs
 volume_render basic.vs volume_render.fs
 sphere_render basic.vs sphere_render.fs
+deferred_cook quad.vs deferred_cook.fs
+
 
 \perturbNormal
 
@@ -59,6 +61,64 @@ float isShadow(mat4 u_shadow_vp, vec3 v_world_position, sampler2D u_shadowmap, f
 	return shadow;
 }
 
+
+\PBR_functions
+
+#define PI 3.14159265359
+#define eps 0.001
+
+vec3 fresnelReflection(vec3 L, vec3 V, vec3 albedo, float metalness)
+{
+	vec3 F0 = mix(vec3(0.04), albedo, metalness);
+	vec3 H = normalize(L + V);
+	vec3 F = F0 + (1.0-F0) * pow(1.0 - dot(H, V), 5.0);
+	return F;
+}
+
+float normalDistribution(float roughness, vec3 N, vec3 L, vec3 V)
+{
+	float alpha = roughness * roughness;
+	float alpha2 = alpha * alpha;
+	vec3 H = normalize(L + V);
+	float NH = clamp(dot(N, H), 0.0, 1.0);
+	float NH2 = NH * NH;
+
+	float denom = NH2 * (alpha2 - 1.0) + 1.0;
+	return alpha2 / max((PI * denom * denom), eps); //avoid dividing by 0
+}
+
+float geometryTerm(vec3 N, vec3 V, vec3 L, float roughness)
+{
+	float alpha = roughness * roughness;
+	float k = alpha / 2.0;
+	
+	float NV = clamp(dot(N, V), 0.0, 1.0);
+	float den = max(NV * (1.0 - k) + k, eps);
+	float gv = NV / den;
+
+	float NL = clamp(dot(N, L), 0.0, 1.0);
+	float den2 = max(NL * (1.0 - k) + k, eps);
+	float gl = NL / den2;
+
+	return gv * gl; //avoid dividing by 0
+}
+
+vec3 cookTorrance(vec3 L, vec3 V, vec3 albedo, float metalness, float roughness, vec3 N)
+{
+	vec3 fr = fresnelReflection(L, V, albedo, metalness);
+	float nd = normalDistribution(roughness, N, L, V);
+	float g = geometryTerm(N, V, L, roughness);
+	vec3 num = fr * nd * g;
+
+	float NL = max(dot(N,L),0.0);
+	float NV = max(dot(N,V),0.0);
+	float den = max(4.0 * NL * NV, eps);
+
+	vec3 spec = num / den;
+	vec3 diff = albedo / PI;
+
+	return diff + spec;
+} 
 
 
 \basic.vs
@@ -491,7 +551,7 @@ void main()
 	vec4 color = u_color;
 	color *= texture(u_texture, v_uv);
 	if(color.a < u_alpha_cutoff) 
-		discard;s
+		discard;
 
 	vec3 nm_color = normalize((texture(u_normalmap, v_uv).xyz * 2.0) - 1.0); //color sampled from the normalmap converted to a range [-1,1]
 	vec3 N = perturbNormal(normalize(v_normal), v_world_position, v_uv, nm_color); // rarnge [-1, 1]
@@ -883,4 +943,161 @@ out vec4 FragColor;
 void main()
 {
 	FragColor = vec4(1.0, 0.0, 0.0, 1.0); //paint sphere red
+}
+
+//-------------------------------------------------------------------------//
+//		 COOK-TORRANCE BRDF MODEL DEFERRED RENDERING					   //
+//-------------------------------------------------------------------------//
+
+\deferred_cook.fs
+
+#version 330 core
+#include computeShadow
+#include PBR_functions
+
+
+// From quad.vs:
+in vec2 v_uv; // to sample textures
+
+// Camera Uniforms:
+uniform mat4 u_inv_viewprojection;
+uniform vec3 u_camera_pos;
+
+//Lighting Uniforms:
+const int MAX_LIGHTS = 4;
+uniform vec3 u_ambient_light;
+uniform int u_num_lights;
+uniform float u_shininess;
+uniform vec3 u_light_pos[MAX_LIGHTS];
+uniform vec3 u_light_color[MAX_LIGHTS];
+uniform float u_intensity[MAX_LIGHTS];
+uniform int u_light_type[MAX_LIGHTS];
+uniform vec3 u_light_front[MAX_LIGHTS];
+uniform vec2 u_light_cone[MAX_LIGHTS];
+
+// ShadowMaps:
+const int MAX_SHADOWS = 2; //only directional and spot lights will cast shadows
+uniform float u_shadow_bias;
+uniform sampler2D u_shadowmaps[MAX_SHADOWS];
+uniform mat4 u_shadow_vps[MAX_SHADOWS];
+
+// GBuffer textures:
+uniform sampler2D u_gbuffer_color;
+uniform sampler2D u_gbuffer_normal;
+uniform sampler2D u_gbuffer_depth;
+uniform sampler2D u_gbuffer_metallic_roughness;
+
+// Color Output:
+out vec4 FragColor;
+
+void main()
+{	
+// Compute fragment world position: 
+	float depth = texture(u_gbuffer_depth, v_uv).r; // texture range [0,1] stored in first channel
+	if (depth >= 1.0) discard; // If the depth is so large then it belongs to the background or skybox!
+	float depth_clip = 2.0 * depth - 1.0; // clip space range [-1, 1]
+	vec2 uv_clip = 2.0 * v_uv - 1.0;
+	vec4 clip_coords = vec4(uv_clip.x, uv_clip.y, depth_clip, 1.0);
+	vec4 not_norm_world_pos = u_inv_viewprojection * clip_coords; // from clip space to world space in homogeneous coord's
+	vec3 world_pos = not_norm_world_pos.xyz / not_norm_world_pos.w; // convert to cartesian coord's
+
+//Extract metallic and roughness parameters:
+	vec4 metallic_roughness = texture(u_gbuffer_metallic_roughness, v_uv);
+	float metallic = metallic_roughness.g;
+	float roughness = metallic_roughness.b;
+
+// Extract Normal
+	vec3 normal = 2.0 * texture(u_gbuffer_normal, v_uv).xyz - 1.0; //back to [-1, 1] range
+	vec3 N = normalize(normal);
+
+// Fragment's initial color -> without lighting
+	vec4 color = texture(u_gbuffer_color, v_uv);
+	vec3 k = color.rgb; //k = k_a = k_s = k_d
+
+// Define some variables:
+ 	vec3 L_vec, L, light_intensity, diffuse_contrib, R, V, specular_contrib, D;
+	float d, attenuation, RV, LD, alpha_max, alpha_min, attenuation_distance, attenuation_angle, shadow;
+
+//AMBIENT LIGHT:
+	vec3 BRDFcolor = u_ambient_light * k;
+	vec3 outgoing_light = vec3(0.0);
+
+	//CUMULATIVE VARIABLES:
+	vec3 diffuse = vec3(0.0);
+	vec3 specular = vec3(0.0);
+	int s = 0; // to know in which shadowmap we are.
+
+
+	for (int i = 0; i < MAX_LIGHTS; i++) {
+		if(i >= u_num_lights) break;
+
+	// POINT LIGHT
+		if (u_light_type[i] == 1) {
+		// Li(p,L)
+			L_vec = u_light_pos[i] - world_pos;
+			L = normalize(L_vec);
+			d = length(L_vec);
+			attenuation = u_intensity[i]/pow(d,2);
+			light_intensity = attenuation * u_light_color[i]; // what reaches the point
+			V = normalize(u_camera_pos - world_pos);
+			
+			float LN = clamp(dot(L,N), 0.0, 1.0);
+			
+			outgoing_light = cookTorrance(L, V, k, metallic, roughness, N) * light_intensity * LN;	
+		}
+	
+	//DIRECTION LIGHT 
+		else if (u_light_type[i] == 3) {
+		//There is no attenuation:
+			light_intensity = u_intensity[i] * u_light_color[i];
+
+		//SHADOWS:
+			shadow = isShadow(u_shadow_vps[s], world_pos, u_shadowmaps[s], u_shadow_bias);
+			s += 1;
+
+		//Li(p,L)
+			L_vec = u_light_pos[i] - world_pos;
+			L = normalize(L_vec);
+			V = normalize(u_camera_pos - world_pos);
+
+			float LN = clamp(dot(L,N), 0.0, 1.0);
+			outgoing_light = cookTorrance(L, V, k, metallic, roughness, N) * light_intensity * LN * shadow;	
+		}
+
+	//SPOT LIGHT 
+		else {
+			L_vec = u_light_pos[i] - world_pos;
+			L = normalize(L_vec);
+			D = normalize(-u_light_front[i]); //cone center direction
+			LD = dot(-L,D);
+			alpha_max = cos(u_light_cone[i].y);
+			if(LD >= alpha_max){
+				alpha_min = cos(u_light_cone[i].x);
+				d = length(L_vec); //distance from point to light source
+				attenuation_distance = u_intensity[i] / pow(d,2); // attenuation of light by distance between point and light source
+				attenuation_angle = clamp((LD - alpha_max) / (alpha_min - alpha_max), 0.0, 1.0);
+				attenuation = attenuation_distance * attenuation_angle;
+				light_intensity = u_light_color[i] * attenuation;
+			//SHADOWS: only if the pixel is illuminated by the spot light
+				shadow = isShadow(u_shadow_vps[s], world_pos, u_shadowmaps[s], u_shadow_bias);
+			}
+			else {
+				light_intensity = vec3(0.0);
+				shadow = 0.0;				
+			}
+
+			s += 1;
+
+		//Li(p,L)
+			V = normalize(u_camera_pos - world_pos);
+			float LN = clamp(dot(L,N), 0.0, 1.0);
+			outgoing_light = cookTorrance(L, V, k, metallic, roughness, N) * light_intensity * LN * shadow;
+
+
+		}
+
+		BRDFcolor += outgoing_light;
+	}
+
+	FragColor = vec4(BRDFcolor, color.a);
 }
