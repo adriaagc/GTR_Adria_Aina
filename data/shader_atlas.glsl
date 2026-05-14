@@ -485,28 +485,24 @@ void main()
 	vec3 nm_color = normalize((texture(u_normalmap, v_uv).xyz * 2.0) - 1.0); //color sampled from the normalmap converted to a range [-1,1]
 	vec3 N = perturbNormal(normalize(v_normal), v_world_position, v_uv, nm_color);
 
+	diffuseSpecular res;
 	vec3 diffuse = vec3(0.0);
 	vec3 specular = vec3(0.0);
-	
+
 	for(int i = 0; i<MAX_LIGHTS; i++) {
 		if (i < u_num_lights) {
 		
 	//POINT LIGHT
 			if (u_light_type[i] == 1) {
-				diffuseSpecular res = point_light_reflection(u_light_pos[i], v_world_position, u_intensity[i], u_light_color[i], N, u_camera_pos, u_shininess);
-				diffuse += res.d;
-				specular += res.s;
+				res = point_light_reflection(u_light_pos[i], v_world_position, u_intensity[i], u_light_color[i], N, u_camera_pos, u_shininess);
 			} 
-			
 	//DIRECTIONAL LIGHT
 			else if (u_light_type[i] == 3) {
 			//SHADOWS:
 				shadow = isShadow(u_shadow_vps[s], v_world_position, u_shadowmaps[s], u_shadow_bias);
 				s += 1;
 
-				diffuseSpecular res = directional_light_reflection(shadow, u_intensity[i], u_shininess,  u_light_color[i], u_light_front[i], N, u_camera_pos, v_world_position);
-				diffuse += res.d;
-				specular += res.s;
+				res = directional_light_reflection(shadow, u_intensity[i], u_shininess,  u_light_color[i], u_light_front[i], N, u_camera_pos, v_world_position);
 			}
 	//SPOT LIGHT
 			else {
@@ -514,13 +510,11 @@ void main()
 				shadow = isShadow(u_shadow_vps[s], v_world_position, u_shadowmaps[s], u_shadow_bias);
 				s += 1;
 
-				diffuseSpecular res = spot_light_reflection(u_light_pos[i], v_world_position, u_light_front[i], u_light_cone[i], u_intensity[i], u_light_color[i], shadow, N, u_shininess, u_camera_pos);
-				
-				diffuse += res.d;
-				specular += res.s;
+				res = spot_light_reflection(u_light_pos[i], v_world_position, u_light_front[i], u_light_cone[i], u_intensity[i], u_light_color[i], shadow, N, u_shininess, u_camera_pos);
 			}
 		}
-
+		diffuse += res.d;
+		specular += res.s;
 	}
 
 	phong += k*(diffuse + specular);
@@ -528,121 +522,9 @@ void main()
 
 }
 
-// void main() 
-// {
-
-// 	vec4 color = u_color;
-// 	color *= texture(u_texture, v_uv);
-// 	if (color.a < u_alpha_cutoff) 
-// 		discard;
-
-// 	vec3 k = color.rgb; //k = k_a = k_s = k_d
-
-// //VARIABLES TO BE USED:
-// 	vec3 L_vec, L, N, light_intensity, diffuse_contrib, R, V, specular_contrib, D;
-// 	float d, attenuation, RV, LD, alpha_max, alpha_min, attenuation_distance, attenuation_angle, shadow;
-// 	int s = 0; //to know in which shadowmap we are
-
-// //AMBIENT LIGHT:
-// 	vec3 phong = u_ambient_light * k;
-
-// //NORMALS WITH NORMALMAPS:
-// 	vec3 nm_color = normalize((texture(u_normalmap, v_uv).xyz * 2.0) - 1.0); //color sampled from the normalmap converted to a range [-1,1]
-// 	N = perturbNormal(normalize(v_normal), v_world_position, v_uv, nm_color);
-
-// 	vec3 diffuse = vec3(0.0);
-// 	vec3 specular = vec3(0.0);
-	
-// 	for(int i = 0; i<MAX_LIGHTS; i++) {
-// 		if (i < u_num_lights) {
-		
-// 	//POINT LIGHT
-// 			if (u_light_type[i] == 1) {
-// 			//DIFFUSE:
-// 				L_vec = u_light_pos[i] - v_world_position;
-// 				L = normalize(L_vec);
-// 				d = length(L_vec);
-// 				attenuation = u_intensity[i]/pow(d,2);
-// 				light_intensity = attenuation * u_light_color[i];
-// 				diffuse_contrib = clamp(dot(L,N), 0.0, 1.0) * light_intensity;
-// 				diffuse += diffuse_contrib;
-
-// 			//SPECULAR:
-// 				R = reflect(-L, N);
-// 				V = normalize(u_camera_pos - v_world_position);
-// 				RV = clamp(dot(R,V), 0.0, 1.0);
-// 				specular_contrib = pow(RV, u_shininess) * light_intensity;
-// 				specular += specular_contrib;
-// 			} 
-			
-// 	//DIRECTIONAL LIGHT
-// 			else if (u_light_type[i] == 3) {
-// 			//There is no attenuation:
-// 				light_intensity = u_intensity[i] * u_light_color[i];
-
-// 			//SHADOWS:
-// 				shadow = isShadow(u_shadow_vps[s], v_world_position, u_shadowmaps[s], u_shadow_bias);
-// 				s += 1;
-		
-// 			//DIFFUSE
-// 				L = normalize(u_light_front[i]); // -L is the direction of the light 
-// 				diffuse_contrib = clamp(dot(N,L), 0.0, 1.0) * light_intensity;
-// 				diffuse += shadow*diffuse_contrib;
-			
-// 			//SPECULAR
-// 				R = reflect(-L,N);
-// 				V = normalize(u_camera_pos - v_world_position);
-// 				RV = clamp(dot(R,V), 0.0, 1.0);
-// 				specular_contrib = pow(RV, u_shininess) * light_intensity;
-// 				specular += shadow*specular_contrib;
-// 			}
-// 	//SPOT LIGHT
-// 			else {
-// 				L_vec = u_light_pos[i] - v_world_position;
-// 				L = normalize(L_vec);
-// 				D = normalize(-u_light_front[i]); //cone center direction
-// 				LD = dot(-L,D);
-// 				alpha_max = cos(u_light_cone[i].y);
-// 				if(LD >= alpha_max){
-// 					alpha_min = cos(u_light_cone[i].x);
-// 					d = length(L_vec); //distance from point to light source
-// 					attenuation_distance = u_intensity[i] / pow(d,2); // attenuation of light by distance between point and light source
-// 					attenuation_angle = clamp((LD - alpha_max) / (alpha_min - alpha_max), 0.0, 1.0);
-// 					attenuation = attenuation_distance * attenuation_angle;
-// 					light_intensity = u_light_color[i] * attenuation;
-
-// 				//SHADOWS: only if the pixel is illuminated by the spot light
-// 					shadow = isShadow(u_shadow_vps[s], v_world_position, u_shadowmaps[s], u_shadow_bias);
-// 				}
-// 				else{
-// 					light_intensity = vec3(0.0);
-// 					shadow = 0.0;
-// 				}
-
-// 				s += 1;
-
-// 			//DIFFUSE
-// 				diffuse_contrib = clamp(dot(L,N), 0.0, 1.0) * light_intensity;
-// 				diffuse += shadow*diffuse_contrib;
-
-// 			//SPECULAR
-// 				R = reflect(-L,N);
-// 				RV = clamp(dot(R,V), 0.0, 1.0);
-// 				specular_contrib = pow(RV, u_shininess) * light_intensity;
-// 				specular += shadow*specular_contrib;
-// 			}
-// 		}
-
-// 	}
-
-// 	phong += k*(diffuse + specular);
-// 	FragColor = vec4(phong, color.a);
-
-// }
-
-
 
 //-------------------------------------------------------------------------//
+//							SHADOWMAPS 									   //
 //-------------------------------------------------------------------------//
 
 \plain.fs
@@ -665,7 +547,6 @@ void main()
 	
 	FragColor = vec4(0.0, 0.0, 0.0, 1.0); // since glColorMask->false, any color wil be discarded
 }
-
 
 
 //-------------------------------------------------------------------------//
@@ -710,7 +591,6 @@ void main()
 	//METALNESS PARAMETER
 	vec4 metallic_roughness = texture(u_MetalicRoughness, v_uv);
 	gbuffer_metallic_roughness = metallic_roughness;
-	// gbuffer_metallic_roughness = vec4(1.0,0.0,0.0,1.0);
 }
 
 //-------------------------------------------------------------------------//
@@ -721,6 +601,7 @@ void main()
 
 #version 330 core
 #include computeShadow
+#include lighting_functions
 
 // From quad.vs:
 in vec2 v_uv; // to sample textures
@@ -766,7 +647,6 @@ void main()
 	vec4 not_norm_world_pos = u_inv_viewprojection * clip_coords; // from clip space to world space in homogeneous coord's
 	vec3 world_pos = not_norm_world_pos.xyz / not_norm_world_pos.w; // convert to cartesian coord's
 
-
 // Extract Normal
 	vec3 normal = 2.0 * texture(u_gbuffer_normal, v_uv).xyz - 1.0; //back to [-1, 1] range
 	vec3 N = normalize(normal);
@@ -775,99 +655,40 @@ void main()
 	vec4 color = texture(u_gbuffer_color, v_uv);
 	vec3 k = color.rgb; //k = k_a = k_s = k_d
 
-// Define some variables:
- 	vec3 L_vec, L, light_intensity, diffuse_contrib, R, V, specular_contrib, D;
-	float d, attenuation, RV, LD, alpha_max, alpha_min, attenuation_distance, attenuation_angle, shadow;
-
 //AMBIENT LIGHT:
 	vec3 phong = u_ambient_light * k;
 
-	//CUMULATIVE VARIABLES:
+	// VARIABLES:
 	vec3 diffuse = vec3(0.0);
 	vec3 specular = vec3(0.0);
+	float shadow;
 	int s = 0; // to know in which shadowmap we are.
-
+	diffuseSpecular res;
 
 	for (int i = 0; i < MAX_LIGHTS; i++) {
 		if(i >= u_num_lights) break;
-
-	// POINT LIGHT
+	//POINT LIGHT
 		if (u_light_type[i] == 1) {
-		// DIFFUSE
-			L_vec = u_light_pos[i] - world_pos;
-			L = normalize(L_vec);
-			d = length(L_vec);
-			attenuation = u_intensity[i]/pow(d,2);
-			light_intensity = attenuation * u_light_color[i]; // what reaches the point
-			diffuse_contrib = clamp(dot(L,N), 0.0, 1.0) * light_intensity;
-			diffuse += diffuse_contrib;
-
-		//SPECULAR:
-				R = reflect(-L, N);
-				V = normalize(u_camera_pos - world_pos);
-				RV = clamp(dot(R,V), 0.0, 1.0);
-				specular_contrib = pow(RV, u_shininess) * light_intensity;
-				specular += specular_contrib;
+			res = point_light_reflection(u_light_pos[i], world_pos, u_intensity[i], u_light_color[i], N, u_camera_pos, u_shininess);
 		}
-	
-	//DIRECTION LIGHT 
+	//DIRECTIONAL LIGHT 
 		else if (u_light_type[i] == 3) {
-		//There is no attenuation:
-			light_intensity = u_intensity[i] * u_light_color[i];
-
 		//SHADOWS:
 			shadow = isShadow(u_shadow_vps[s], world_pos, u_shadowmaps[s], u_shadow_bias);
 			s += 1;
-
-		//DIFFUSE
-			L = normalize(u_light_front[i]); // -L is the direction of the light 
-			diffuse_contrib = clamp(dot(N,L), 0.0, 1.0) * light_intensity;
-			diffuse += shadow*diffuse_contrib;
-
-		//SPECULAR
-			R = reflect(-L,N);
-			V = normalize(u_camera_pos - world_pos);
-			RV = clamp(dot(R,V), 0.0, 1.0);
-			specular_contrib = pow(RV, u_shininess) * light_intensity;
-			specular += shadow*specular_contrib;
+			res = directional_light_reflection(shadow, u_intensity[i], u_shininess, u_light_color[i], u_light_front[i], N, u_camera_pos, world_pos);
 		}
-
 	//SPOT LIGHT 
 		else {
-			L_vec = u_light_pos[i] - world_pos;
-			L = normalize(L_vec);
-			D = normalize(-u_light_front[i]); //cone center direction
-			LD = dot(-L,D);
-			alpha_max = cos(u_light_cone[i].y);
-			if(LD >= alpha_max){
-				alpha_min = cos(u_light_cone[i].x);
-				d = length(L_vec); //distance from point to light source
-				attenuation_distance = u_intensity[i] / pow(d,2); // attenuation of light by distance between point and light source
-				attenuation_angle = clamp((LD - alpha_max) / (alpha_min - alpha_max), 0.0, 1.0);
-				attenuation = attenuation_distance * attenuation_angle;
-				light_intensity = u_light_color[i] * attenuation;
-			//SHADOWS: only if the pixel is illuminated by the spot light
-				shadow = isShadow(u_shadow_vps[s], world_pos, u_shadowmaps[s], u_shadow_bias);
-			}
-			else {
-				light_intensity = vec3(0.0);
-				shadow = 0.0;				
-			}
-
+		//SHADOWS:
+			shadow = isShadow(u_shadow_vps[s], world_pos, u_shadowmaps[s], u_shadow_bias);
 			s += 1;
-
-		//DIFFUSE
-			diffuse_contrib = clamp(dot(L,N), 0.0, 1.0) * light_intensity;
-			diffuse += shadow*diffuse_contrib;
-
-		//SPECULAR
-			R = reflect(-L,N);
-			RV = clamp(dot(R,V), 0.0, 1.0);
-			specular_contrib = pow(RV, u_shininess) * light_intensity;
-			specular += shadow*specular_contrib;
+			res = spot_light_reflection(u_light_pos[i], world_pos, u_light_front[i], u_light_cone[i], u_intensity[i], u_light_color[i], shadow, N, u_shininess, u_camera_pos);
 		}
+		
+		diffuse += res.d;
+		specular += res.s;
 	}
-
 	phong += k*(diffuse + specular);
 
 	FragColor = vec4(phong, color.a);
@@ -882,6 +703,7 @@ void main()
 
 #version 330 core
 #include computeShadow 
+#include lighting_functions
 
 //From quad.vs:
 in vec2 v_uv; //in texture space [0,1]
@@ -936,21 +758,10 @@ void main()
 	vec3 N = normalize(normal);
 
 //DIRECTIONAL LIGHT:
-	//DIFFUSE
-	vec3 L = normalize(u_light_front); // -L is the direction of the light 
-	vec3 diffuse_contrib = clamp(dot(N,L), 0.0, 1.0) * light_intensity;
-	vec3 diffuse = shadow*diffuse_contrib;
-
-	//SPECULAR
-	vec3 R = reflect(-L,N);
-	vec3 V = normalize(u_camera_pos - world_pos);
-	float RV = clamp(dot(R,V), 0.0, 1.0);
-	vec3 specular_contrib = pow(RV, u_shininess) * light_intensity;
-	vec3 specular = shadow*specular_contrib;
+	diffuseSpecular res = directional_light_reflection(shadow, u_intensity, u_shininess, u_light_color, u_light_front, N, u_camera_pos, world_pos);
 
 //AMBIENT + DIRECTIONAL W/ SHADOWS:
-
-	vec3 phong = k*(u_ambient_light + diffuse + specular);
+	vec3 phong = k*(u_ambient_light + res.d + res.s);
 	FragColor = vec4(phong, color.a);
 }
 
@@ -962,8 +773,7 @@ void main()
 
 # version 330 core
 #include computeShadow
-// #define WIDTH 1024
-// #define HEIGHT 768
+#include lighting_functions
 
 // From basic.vs:
 in vec2 v_uv; // to sample textures
@@ -1020,82 +830,24 @@ void main()
 	vec3 k = color.rgb; //k = k_a = k_s = k_d
 	
 // Define some variables:
-	vec3 L_vec, L, light_intensity, diffuse_contrib, R, V, specular_contrib, D, diffuse, specular, phong;
-	float d, attenuation, RV, LD, alpha_max, alpha_min, attenuation_distance, attenuation_angle, shadow;
-
+	diffuseSpecular res;
+	vec3 phong;
+	float shadow;
 
 //POINT LIGHT:
 	if (u_light_type == 1) {
-		// DIFFUSE
-			L_vec = u_light_pos - world_pos;
-			L = normalize(L_vec);
-			d = length(L_vec);
-			attenuation = u_intensity/pow(d,2);
-			light_intensity = attenuation * u_light_color; // what reaches the point
-			diffuse_contrib = clamp(dot(L,N), 0.0, 1.0) * light_intensity;
-			diffuse = diffuse_contrib;
-
-		//SPECULAR:
-			R = reflect(-L, N);
-			V = normalize(u_camera_pos - world_pos);
-			RV = clamp(dot(R,V), 0.0, 1.0);
-			specular_contrib = pow(RV, u_shininess) * light_intensity;
-			specular = specular_contrib;
+			res = point_light_reflection(u_light_pos, world_pos, u_intensity, u_light_color, N, u_camera_pos, u_shininess);		
 		}
 //SPOT LIGHT
 	else {
-		L_vec = u_light_pos - world_pos;
-		L = normalize(L_vec);
-		D = normalize(-u_light_front); //cone center direction
-		LD = dot(-L,D);
-		alpha_max = cos(u_light_cone.y);
-		if(LD >= alpha_max){
-			alpha_min = cos(u_light_cone.x);
-			d = length(L_vec); //distance from point to light source
-			attenuation_distance = u_intensity / pow(d,2); // attenuation of light by distance between point and light source
-			attenuation_angle = clamp((LD - alpha_max) / (alpha_min - alpha_max), 0.0, 1.0);
-			attenuation = attenuation_distance * attenuation_angle;
-			light_intensity = u_light_color * attenuation;
-		//SHADOWS: only if the pixel is illuminated by the spot light
+		//SHADOWS:
 			shadow = isShadow(u_shadow_vps, world_pos, u_shadowmaps, u_shadow_bias);
-		}
-		else {
-			light_intensity = vec3(0.0);
-			shadow = 0.0;			
-		}
-
-    	// if(LD >= alpha_max){
-        // 	FragColor = vec4(1.0, 0.0, 0.0, 1.0);
-    	// } else {
-        // 	FragColor = vec4(0.0, 0.0, 1.0, 1.0);
-    	// }
-
-		// return;
-
-		// if(LD >= alpha_max){
-    	// FragColor = vec4(vec3(shadow), 1.0); // blanc = sense ombra, negre = ombra
-		// } else {
-    	// FragColor = vec4(0.0, 0.0, 1.0, 1.0);
-		// }
-		// return;
-
-	//DIFFUSE
-		diffuse_contrib = clamp(dot(L,N), 0.0, 1.0) * light_intensity;
-		diffuse = shadow*diffuse_contrib;
-
-	//SPECULAR
-		R = reflect(-L,N);
-		V = normalize(u_camera_pos - world_pos);
-		RV = clamp(dot(R,V), 0.0, 1.0);
-		specular_contrib = pow(RV, u_shininess) * light_intensity;
-		specular = shadow*specular_contrib;
+			res = spot_light_reflection(u_light_pos, world_pos, u_light_front, u_light_cone, u_intensity, u_light_color, shadow, N, u_shininess, u_camera_pos);
 	}
 	
-	phong = k*(diffuse + specular);
+	phong = k*(res.d + res.s);
 
-	// FragColor = vec4(vec3(d * 0.01), 1.0);
 	FragColor = vec4(phong, color.a);
-	// FragColor = vec4(vec3(shadow),1.0);
 }
 
 
@@ -1256,7 +1008,6 @@ void main()
 			float LN = clamp(dot(L,N), 0.0, 1.0);
 			outgoing_light = cookTorrance(L, V, k, metallic, roughness, N) * light_intensity * LN * shadow;
 
-
 		}
 
 		BRDFcolor += outgoing_light;
@@ -1267,7 +1018,7 @@ void main()
 
 
 //-------------------------------------------------------------------------//
-//		 COOK-TORRANCE BRDF MODEL phong RENDERING					   //
+//				 COOK-TORRANCE BRDF MODEL phong RENDERING				   //
 //-------------------------------------------------------------------------//
 
 \phong_cook.fs

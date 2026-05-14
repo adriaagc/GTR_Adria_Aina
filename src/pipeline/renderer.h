@@ -59,6 +59,16 @@ namespace SCN {
 
 		bool render_wireframe;
 		bool render_boundaries;
+		
+		//toggle between rendering modes:
+		bool isPhong = true;			//single-pass
+		bool isDeferredPhong = false;   //deferred
+		bool isLightVol = false;		//deferred
+		bool isDeferredCook = false;	//deferred
+		bool isCook = false;			//single-pass
+
+		bool* currentRenderMode = &isPhong; //starting mode
+
 
 	//FBOs & shadowmaps
 		//GFX::FBO* fbo;
@@ -105,7 +115,7 @@ namespace SCN {
 		void renderSkybox(GFX::Texture* cubemap);
 
 		//to render one mesh given its material and transformation matrix
-		void renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN::Material* material);
+		void renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN::Material* material); // const std::string& shaderName
 
 		//Phong with deferred rendering
 		void renderQuadMesh(GFX::Mesh* mesh);
@@ -124,6 +134,8 @@ namespace SCN {
 
 
 		void showUI();
+		void controlRenderMode();
+
 	};
 
 };

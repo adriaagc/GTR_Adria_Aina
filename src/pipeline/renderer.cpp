@@ -244,70 +244,78 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 		i += 1;
 	}
 
-	//for (sRenderable& call : opaque_list) {
-	//	if (isInsideFrustum(&call, camera) != CLIP_OUTSIDE) renderMeshWithMaterial(call.model, call.mesh, call.material);
-	//}
-	
-
-//G-BUFFER: 
-	gbuffer->bind();
-	// Per saber que guarda més d'una textura 
-	GLenum buffers[] = { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2 };
-	glDrawBuffers(3, buffers);
-
-	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT); // Clear textures from prev frame
-	for (sRenderable& call : opaque_list) {
-		if (isInsideFrustum(&call, camera) != CLIP_OUTSIDE) renderGBuffer(call.model, call.mesh, call.material); 
+	if (isPhong) {
+		for (sRenderable& call : opaque_list) {
+			if (isInsideFrustum(&call, camera) != CLIP_OUTSIDE) renderMeshWithMaterial(call.model, call.mesh, call.material);
+		}
 	}
-	gbuffer->unbind();
-
-	//gbuffer->depth_texture->toViewport();
-
-//QUAD:
+	
+	//QUAD:
 	GFX::Mesh* quad = GFX::Mesh::getQuad();
 
-	////RENDER DEFERRED AMB COOK
-	//renderCookDeferred(quad);	
-	//renderQuadMesh(quad);
+//G-BUFFER: 
+	if (isDeferredPhong || isLightVol || isDeferredCook) {
+		gbuffer->bind();
+		GLenum buffers[] = { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2 };// As we are storing more than one texture
+		glDrawBuffers(3, buffers);
 
-	/*for (sRenderable call : opaque_list) {
-		if (isInsideFrustum(&call, camera) != CLIP_OUTSIDE) renderCook(call.model, call.mesh, call.material);
+		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT); // Clear textures from prev frame
+		for (sRenderable& call : opaque_list) {
+			if (isInsideFrustum(&call, camera) != CLIP_OUTSIDE) renderGBuffer(call.model, call.mesh, call.material);
+		}
+		gbuffer->unbind();
+
+	//LIGHT VOLUMES:
+		if (isLightVol) {
+			gbuffer->depth_texture->copyTo(lighting_FBO->depth_texture);
+
+			lighting_FBO->bind(); //we tell OpenGL that the rendering should go to the textures of this FBO.
+			glClear(GL_COLOR_BUFFER_BIT);
+
+			//AMBIENT & DIRECTIONAL LIGHT
+			renderAmbient(quad);
+
+			//RENDER LIGHT VOLUMES:
+			renderLightVolume();
+			//renderLightSpheres();
+
+			lighting_FBO->unbind(); //reset rendering to the framebuffer.
+
+			lighting_FBO->color_textures[0]->toViewport();
+		}
+	//DEFERRED COOK-TORRANCE:
+		else if (isDeferredCook) {
+			renderCookDeferred(quad);
+			renderQuadMesh(quad);
+
+			for (sRenderable call : opaque_list) {
+				if (isInsideFrustum(&call, camera) != CLIP_OUTSIDE) renderCookDeferred(quad);
+			}
+		}
+	//DEFERRED PHONG:
+		else {
+			for (sRenderable call : opaque_list) {
+				if (isInsideFrustum(&call, camera) != CLIP_OUTSIDE) renderQuadMesh(quad);
+			}
+		}
+
+		
 	}
 
-	for (sRenderable call : translucent_list) {
-		if (isInsideFrustum(&call, camera) != CLIP_OUTSIDE) renderMeshWithMaterial(call.model, call.mesh, call.material);
-	}*/
+	if (isCook) {
+		for (sRenderable call : opaque_list) {
+			if (isInsideFrustum(&call, camera) != CLIP_OUTSIDE) renderCook(call.model, call.mesh, call.material);
+		}
+	}
 
-	
-
-//LIGHT VOLUMES:
-	gbuffer->depth_texture->copyTo(lighting_FBO->depth_texture);
-
-	lighting_FBO->bind(); //we tell OpenGL that the rendering should go to the textures of this FBO.
-	glClear(GL_COLOR_BUFFER_BIT);
-
-	//AMBIENT & DIRECTIONAL LIGHT
-	renderAmbient(quad);
-
-	//RENDER LIGHT VOLUMES:
-	renderLightVolume();
-	//renderLightSpheres();
-
-	////render translucent list
+	// At the end, render the translucent objects:
 	for (sRenderable call : translucent_list) {
 		if (isInsideFrustum(&call, camera) != CLIP_OUTSIDE) renderMeshWithMaterial(call.model, call.mesh, call.material);
 	}
-
-	lighting_FBO->unbind(); //reset rendering to the framebuffer.
-
-	lighting_FBO->color_textures[0]->toViewport();
-	//lighting_FBO->depth_texture->toViewport();
-
 }
 
 void Renderer::renderCook(const Matrix44 model, GFX::Mesh* mesh, SCN::Material* material)
 {
-	//printf("dins de renderCook");
 	//in case there is nothing to do
 	if (!mesh || !mesh->getNumVertices() || !material)
 		return;
@@ -450,13 +458,6 @@ void Renderer::renderLightSpheres()
 {
 	GFX::Shader* shader = NULL;
 	Camera* camera = Camera::current;
-	
-	/*glDisable(GL_BLEND);
-	glEnable(GL_DEPTH_TEST);
-	glDepthFunc(GL_LESS);
-	glDepthMask(GL_TRUE);
-	glEnable(GL_CULL_FACE);
-	glCullFace(GL_BACK);*/
 
 	glDisable(GL_DEPTH_TEST);
 
@@ -499,10 +500,7 @@ void Renderer::renderLightVolume()
 	Camera* camera = Camera::current;
 
 	//OpenGL config
-
-
 	//glDisable(GL_CULL_FACE);
-
 	glDepthFunc(GL_GREATER); //only render those fragments inside the sphere (depth_frag > depth_buffer) that is geometry is in front of sphere's backaface
 	glDepthMask(GL_FALSE); //do not modify/write to the depthbuffer. (avoid overwriting the scene with the light volumes)
 	glEnable(GL_DEPTH_TEST); //however, we still want that the depth of the sphere is compared against the depth of the scene (already stored)
@@ -814,8 +812,8 @@ void Renderer::renderQuadMesh(GFX::Mesh* mesh)
 	glEnable(GL_DEPTH_TEST);
 
 	//chose a shader
-	//shader = GFX::Shader::Get("deferred_phong");
-	shader = GFX::Shader::Get("deferred_cook");
+	shader = GFX::Shader::Get("deferred_phong");
+	//shader = GFX::Shader::Get("deferred_cook");
 
 
 	assert(glGetError() == GL_NO_ERROR);
@@ -955,7 +953,45 @@ void Renderer::showUI()
 	ImGui::SliderFloat("Shininess", &shininess, 0.0f, 100.0f);
 	ImGui::SliderFloat("ShadowBias", &shadow_bias, 0.001f, 0.005f);
 	ImGui::Checkbox("ForwardFacingCulling", &ffc);
+	
+	//To make sure that only on render mode is on at a time:
+	controlRenderMode();
 
+	ImGui::Checkbox("Phong", &isPhong);
+	ImGui::Checkbox("DeferredPhong", &isDeferredPhong);
+	ImGui::Checkbox("LightVolumes", &isLightVol);
+	ImGui::Checkbox("Cook-Torrance", &isCook);
+	ImGui::Checkbox("DeferredCook-Torrance", &isDeferredCook);
+
+
+}
+
+void Renderer::controlRenderMode()
+{
+	// List of all available modes for iteration
+	bool* modes[] = { &isPhong, &isDeferredPhong, &isLightVol, &isCook, &isDeferredCook };
+	int numModes = 5;
+
+	for (int i = 0; i < numModes; ++i) {
+		// If we found a mode that is true but isn't the one we had saved as "current"
+		if (*modes[i] == true && modes[i] != currentRenderMode) {
+			// 1. Turn off the old mode
+			if (currentRenderMode != nullptr) {
+				*currentRenderMode = false;
+			}
+			// 2. Set this new one as the current mode
+			currentRenderMode = modes[i];
+			*currentRenderMode = true;
+
+			return;
+		}
+	}
+
+	// If the user unchecks the current mode and nothing else is selected, 
+	// force it back to true (so at least one mode is always active)
+	if (currentRenderMode != nullptr && *currentRenderMode == false) {
+		*currentRenderMode = true;
+	}
 }
 
 #else
