@@ -121,6 +121,9 @@ namespace SCN {
 		void renderLightVolume();
 		void renderLightSpheres();
 
+		void renderCook(const Matrix44 model, GFX::Mesh* mesh, SCN::Material* material);
+
+
 		void showUI();
 	};
 
