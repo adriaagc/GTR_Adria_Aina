@@ -106,7 +106,6 @@ namespace SCN {
 
 		//to render one mesh given its material and transformation matrix
 		void renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN::Material* material);
-		void renderCook(const Matrix44 model, GFX::Mesh* mesh, SCN::Material* material);
 
 		//Phong with deferred rendering
 		void renderQuadMesh(GFX::Mesh* mesh);

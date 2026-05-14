@@ -142,9 +142,7 @@ void Renderer::parseSceneEntities(SCN::Scene* scene, Camera* cam) {
 			LightEntity* l = (LightEntity*)entity;
 			lights_list.push_back(l);
 		}
-
 	}
-	
 }
 
 char Renderer::isInsideFrustum(sRenderable* obj, Camera* camera) {
@@ -246,6 +244,11 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 		i += 1;
 	}
 
+	//for (sRenderable& call : opaque_list) {
+	//	if (isInsideFrustum(&call, camera) != CLIP_OUTSIDE) renderMeshWithMaterial(call.model, call.mesh, call.material);
+	//}
+	
+
 //G-BUFFER: 
 	gbuffer->bind();
 	// Per saber que guarda més d'una textura 
@@ -262,45 +265,123 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 
 //QUAD:
 	GFX::Mesh* quad = GFX::Mesh::getQuad();
+
+	////RENDER DEFERRED AMB COOK
+	//renderCookDeferred(quad);	
 	//renderQuadMesh(quad);
+
+	/*for (sRenderable call : opaque_list) {
+		if (isInsideFrustum(&call, camera) != CLIP_OUTSIDE) renderCook(call.model, call.mesh, call.material);
+	}
+
+	for (sRenderable call : translucent_list) {
+		if (isInsideFrustum(&call, camera) != CLIP_OUTSIDE) renderMeshWithMaterial(call.model, call.mesh, call.material);
+	}*/
+
+	
 
 //LIGHT VOLUMES:
 	gbuffer->depth_texture->copyTo(lighting_FBO->depth_texture);
 
-	//VOLUMES (descomentar les seguents línies)
-	//lighting_FBO->bind(); //we tell OpenGL that the rendering should go to the textures of this FBO.
-	//glClear(GL_COLOR_BUFFER_BIT);
-
-	//-----------------------
+	lighting_FBO->bind(); //we tell OpenGL that the rendering should go to the textures of this FBO.
+	glClear(GL_COLOR_BUFFER_BIT);
 
 	//AMBIENT & DIRECTIONAL LIGHT
-	//renderAmbient(quad);
+	renderAmbient(quad);
 
 	//RENDER LIGHT VOLUMES:
-	//renderLightVolume();
+	renderLightVolume();
 	//renderLightSpheres();
 
-	//RENDER DEFERRED AMB COOK
-	//renderCookDeferred(quad);
-	
-	//RENDER PHONG AMB COOK
-	for (sRenderable call : opaque_list) {
-		if (isInsideFrustum(&call, camera) != CLIP_OUTSIDE) renderCook(call.model, call.mesh, call.material);
-	}
-
-	//render translucent list
+	////render translucent list
 	for (sRenderable call : translucent_list) {
 		if (isInsideFrustum(&call, camera) != CLIP_OUTSIDE) renderMeshWithMaterial(call.model, call.mesh, call.material);
 	}
 
-	//-----------------
+	lighting_FBO->unbind(); //reset rendering to the framebuffer.
 
-	//lighting_FBO->unbind(); //reset rendering to the framebuffer.
-
-	//lighting_FBO->color_textures[0]->toViewport();
+	lighting_FBO->color_textures[0]->toViewport();
 	//lighting_FBO->depth_texture->toViewport();
+
 }
 
+void Renderer::renderCook(const Matrix44 model, GFX::Mesh* mesh, SCN::Material* material)
+{
+	//printf("dins de renderCook");
+	//in case there is nothing to do
+	if (!mesh || !mesh->getNumVertices() || !material)
+		return;
+	assert(glGetError() == GL_NO_ERROR);
+
+	//define locals to simplify coding
+	GFX::Shader* shader = NULL;
+	Camera* camera = Camera::current;
+
+	glEnable(GL_DEPTH_TEST);
+
+	//chose a shader
+	shader = GFX::Shader::Get("phong_cook");
+
+
+	assert(glGetError() == GL_NO_ERROR);
+
+	//no shader? then nothing to render
+	if (!shader)
+		return;
+	shader->enable();
+
+	material->bind(shader);
+
+	//upload uniforms
+	shader->setUniform("u_model", model);
+
+	// Upload camera uniforms
+	shader->setUniform("u_viewprojection", camera->viewprojection_matrix);
+	shader->setUniform("u_camera_pos", camera->eye);
+
+	// Upload time, for cool shader effects
+	float t = getTime();
+	shader->setUniform("u_time", t);
+
+	// Upload light uniforms
+	shader->setUniform("u_ambient_light", scene->ambient_light);
+	shader->setUniform("u_num_lights", (int)lights_list.size());
+	shader->setUniform("u_shininess", shininess);
+	shader->setUniform3Array("u_light_pos", (float*)light_pos, MAX_LIGHTS);
+	shader->setUniform1Array("u_intensity", light_intensity, MAX_LIGHTS);
+	shader->setUniform3Array("u_light_color", (float*)light_color, MAX_LIGHTS);
+	shader->setUniform1Array("u_light_type", light_type, MAX_LIGHTS);
+	shader->setUniform3Array("u_light_front", (float*)light_front, MAX_LIGHTS);
+	shader->setUniform2Array("u_light_cone", (float*)light_cone, MAX_LIGHTS);
+
+	// Upload shadowmap uniform
+	shader->setUniform("u_shadow_bias", shadow_bias);
+	shader->setUniform("u_shadowmaps[0]", fbos[0]->depth_texture, 2);
+	shader->setUniform("u_shadowmaps[1]", fbos[1]->depth_texture, 3);
+	shader->setMatrix44Array("u_shadow_vps", shadow_vps, MAX_SHADOWS);
+
+	//Passem les components roughness and metalic directament del material de cada element
+	if (material->textures[3].texture) {
+		shader->setTexture("u_MetalicRoughness", material->textures[3].texture, 4);
+	}
+	else {
+		shader->setTexture("u_MetalicRoughness", GFX::Texture::getWhiteTexture(), 4);
+	}
+
+	// Render just the verticies as a wireframe
+	if (render_wireframe)
+		glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+
+	//do the draw call that renders the mesh into the screen
+	mesh->render(GL_TRIANGLES);
+
+	//disable shader
+	shader->disable();
+
+	//set the render state as it was before to avoid problems with future renders
+	glDisable(GL_BLEND);
+	glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+}
 
 void Renderer::renderAmbient(GFX::Mesh* mesh)
 {
@@ -475,7 +556,7 @@ void Renderer::renderLightVolume()
 
 		// Upload shadowmap uniform
 		shader->setUniform("u_shadow_bias", shadow_bias);
-		//shader->setUniform("u_shadowmaps", fbos[s]->depth_texture, 0); //only need to pass the shadowmap of the spotlight
+		shader->setUniform("u_shadowmaps", fbos[s]->depth_texture, 0); //only need to pass the shadowmap of the spotlight
 		shader->setUniform("u_shadow_vps", shadow_vps[s]);
 
 		if (lights_list[i]->light_type == SPOT ) s += 1;
@@ -505,8 +586,6 @@ void Renderer::renderLightVolume()
 	glDepthFunc(GL_LESS);
 	glDepthMask(GL_TRUE);
 	glFrontFace(GL_CCW);
-
-
 }
 
 void Renderer::renderPlain(Camera* light_cam, const Matrix44 model, GFX::Mesh* mesh, SCN::Material* material) 
@@ -721,84 +800,6 @@ void Renderer::renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN
 	glPolygonMode( GL_FRONT_AND_BACK, GL_FILL );
 }
 
-void Renderer::renderCook(const Matrix44 model, GFX::Mesh* mesh, SCN::Material* material)
-{
-	//printf("dins de renderCook");
-	//in case there is nothing to do
-	if (!mesh || !mesh->getNumVertices() || !material)
-		return;
-	assert(glGetError() == GL_NO_ERROR);
-
-	//define locals to simplify coding
-	GFX::Shader* shader = NULL;
-	Camera* camera = Camera::current;
-
-	glEnable(GL_DEPTH_TEST);
-
-	//chose a shader
-	shader = GFX::Shader::Get("phong_cook");
-
-
-	assert(glGetError() == GL_NO_ERROR);
-
-	//no shader? then nothing to render
-	if (!shader)
-		return;
-	shader->enable();
-
-	material->bind(shader);
-
-	//upload uniforms
-	shader->setUniform("u_model", model);
-
-	// Upload camera uniforms
-	shader->setUniform("u_viewprojection", camera->viewprojection_matrix);
-	shader->setUniform("u_camera_pos", camera->eye);
-
-	// Upload time, for cool shader effects
-	float t = getTime();
-	shader->setUniform("u_time", t);
-
-	// Upload light uniforms
-	shader->setUniform("u_ambient_light", scene->ambient_light);
-	shader->setUniform("u_num_lights", (int)lights_list.size());
-	shader->setUniform("u_shininess", shininess);
-	shader->setUniform3Array("u_light_pos", (float*)light_pos, MAX_LIGHTS);
-	shader->setUniform1Array("u_intensity", light_intensity, MAX_LIGHTS);
-	shader->setUniform3Array("u_light_color", (float*)light_color, MAX_LIGHTS);
-	shader->setUniform1Array("u_light_type", light_type, MAX_LIGHTS);
-	shader->setUniform3Array("u_light_front", (float*)light_front, MAX_LIGHTS);
-	shader->setUniform2Array("u_light_cone", (float*)light_cone, MAX_LIGHTS);
-
-	// Upload shadowmap uniform
-	shader->setUniform("u_shadow_bias", shadow_bias);
-	shader->setUniform("u_shadowmaps[0]", fbos[0]->depth_texture, 2);
-	shader->setUniform("u_shadowmaps[1]", fbos[1]->depth_texture, 3);
-	shader->setMatrix44Array("u_shadow_vps", shadow_vps, MAX_SHADOWS);
-
-	//Passem les components roughness and metalic directament del material de cada element
-	if(material->textures[3].texture){
-		shader->setTexture("u_MetalicRoughness", material->textures[3].texture, 4);
-	}
-	else {
-		shader->setTexture("u_MetalicRoughness", GFX::Texture::getWhiteTexture(), 4);
-	}
-
-	// Render just the verticies as a wireframe
-	if (render_wireframe)
-		glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
-
-	//do the draw call that renders the mesh into the screen
-	mesh->render(GL_TRIANGLES);
-
-	//disable shader
-	shader->disable();
-
-	//set the render state as it was before to avoid problems with future renders
-	glDisable(GL_BLEND);
-	glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-}
-
 void Renderer::renderQuadMesh(GFX::Mesh* mesh)
 {
 	//in case there is nothing to do
@@ -813,7 +814,9 @@ void Renderer::renderQuadMesh(GFX::Mesh* mesh)
 	glEnable(GL_DEPTH_TEST);
 
 	//chose a shader
-	shader = GFX::Shader::Get("deferred_phong");
+	//shader = GFX::Shader::Get("deferred_phong");
+	shader = GFX::Shader::Get("deferred_cook");
+
 
 	assert(glGetError() == GL_NO_ERROR);
 
@@ -852,6 +855,7 @@ void Renderer::renderQuadMesh(GFX::Mesh* mesh)
 	shader->setTexture("u_gbuffer_color", gbuffer->color_textures[0], 4);
 	shader->setTexture("u_gbuffer_normal", gbuffer->color_textures[1], 5);
 	shader->setTexture("u_gbuffer_depth", gbuffer->depth_texture, 6);
+	shader->setTexture("u_gbuffer_metallic_roughness", gbuffer->color_textures[2], 7);
 
 	// Render just the verticies as a wireframe
 	if (render_wireframe)
