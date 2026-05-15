@@ -5,7 +5,7 @@
 #include "light.h"
 
 #define MAX_LIGHTS 4
-#define SHADOW_RES 1024
+#define SHADOW_RES 1024 //square
 #define MAX_SHADOWS 2
 
 #define WIDTH 1024
@@ -54,7 +54,7 @@ namespace SCN {
 
 	//ImGui:
 		float shininess = 20.0;
-		float shadow_bias = 0.0001;
+		float shadow_bias = 0.001;
 		bool ffc = true; // enable forward facing culling
 
 		bool render_wireframe;
@@ -88,6 +88,12 @@ namespace SCN {
 	//Light Volumes:
 		GFX::FBO* lighting_FBO;
 
+	//Ambient Occlusion:
+		GFX::FBO* ssao_FBO;
+		int sample_count = 15;
+		float ao_radius = 0.01;
+		bool hemi = false;
+		std::vector<Vector3f> ao_sample_points;
 
 		//updated every frame
 		Renderer(const char* shaders_atlas_filename );
@@ -133,6 +139,7 @@ namespace SCN {
 
 		void renderCook(const Matrix44 model, GFX::Mesh* mesh, SCN::Material* material);
 
+		void renderAmbientOcclusion(GFX::Mesh* mesh);
 
 		void showUI();
 		void controlRenderMode();

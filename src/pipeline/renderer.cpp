@@ -56,10 +56,13 @@ Renderer::Renderer(const char* shader_atlas_filename)
 	//gbuffer->create(WIDTH,HEIGHT, 2, GL_RGBA, GL_UNSIGNED_BYTE, true); //2 textures w/ depth
 	gbuffer->create(WIDTH, HEIGHT, 3, GL_RGBA, GL_UNSIGNED_BYTE, true); //2 textures w/ depth
 
-
 	//Light Volumes
 	lighting_FBO = new GFX::FBO();
 	lighting_FBO->create(WIDTH, HEIGHT, 1, GL_RGBA, GL_UNSIGNED_BYTE, true); //1 color texture, same config as G-Buffer.
+	
+	ssao_FBO = new GFX::FBO();
+	ssao_FBO->create(WIDTH, HEIGHT, 1, GL_RGB, GL_UNSIGNED_BYTE, false); //1 color texture, same config as G-Buffer.
+	ao_sample_points = generateSpherePoints(sample_count, 1.0, hemi); //generate random samples inside sphere of radius 1
 }
 
 Renderer::~Renderer() {
@@ -71,6 +74,7 @@ Renderer::~Renderer() {
 
 	if (gbuffer) delete gbuffer;
 	if (lighting_FBO) delete lighting_FBO;
+	if (ssao_FBO) delete ssao_FBO;
 }
 
 void Renderer::setupScene()
@@ -241,6 +245,11 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 		i += 1;
 	}
 
+//QUAD:
+	GFX::Mesh* quad = GFX::Mesh::getQuad();
+
+//THE RENDERING MODES:
+
 	if (isPhong) {
 		for (sRenderable& call : opaque_list) {
 			if (isInsideFrustum(&call, camera) != CLIP_OUTSIDE) renderMeshWithMaterial(call.model, call.mesh, call.material);
@@ -248,8 +257,6 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 	}
 
 	else if (isDeferredPhong || isLightVol || isDeferredCook) {
-	//QUAD:
-		GFX::Mesh* quad = GFX::Mesh::getQuad();
 	//G-BUFFER:
 		gbuffer->bind();
 		GLenum buffers[] = { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2 };// As we are storing more than one texture
@@ -260,6 +267,13 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 			if (isInsideFrustum(&call, camera) != CLIP_OUTSIDE) renderGBuffer(call.model, call.mesh, call.material);
 		}
 		gbuffer->unbind();
+
+	//AMBIENT OCCLUSION:
+		ssao_FBO->bind();
+		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT); // Clear textures from prev frame
+		renderAmbientOcclusion(quad);
+		ssao_FBO->unbind();
+	
 	//LIGHT VOLUMES:
 		if (isLightVol) {
 			gbuffer->depth_texture->copyTo(lighting_FBO->depth_texture);
@@ -568,7 +582,7 @@ void Renderer::renderLightVolume()
 		shader->setUniform("u_gbuffer_depth", lighting_FBO->depth_texture, 3);
 		//shader->setUniform("u_gbuffer_depth", gbuffer->depth_texture, 3);
 
-		shader->setUniform("size_screen",vec2(WIDTH,HEIGHT));
+		shader->setUniform("u_res_inv",vec2(1.0f/WIDTH, 1.0f/HEIGHT));
 
 		// Render just the verticies as a wireframe
 		if (render_wireframe)
@@ -944,6 +958,50 @@ void Renderer::renderCookDeferred(GFX::Mesh* mesh)
 	glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 }
 
+void Renderer::renderAmbientOcclusion(GFX::Mesh* mesh)
+{
+	//in case there is nothing to do
+	if (!mesh || !mesh->getNumVertices())
+		return;
+	assert(glGetError() == GL_NO_ERROR);
+
+	//define locals to simplify coding
+	GFX::Shader* shader = NULL;
+	Camera* camera = Camera::current;
+
+	glEnable(GL_DEPTH_TEST);
+
+	//chose a shader
+	shader = GFX::Shader::Get("ambient_occlusion");
+
+	assert(glGetError() == GL_NO_ERROR);
+
+	//no shader? then nothing to render
+	if (!shader)
+		return;
+	shader->enable();
+
+	shader->setUniform("u_res_inv", vec2(ssao_FBO->color_textures[0]->width, ssao_FBO->color_textures[0]->height));
+	shader->setUniform("u_gbuffer_depth", gbuffer->depth_texture, 0);
+	shader->setUniform("u_sample_count", sample_count);
+	shader->setUniform("u_sample_radius", ao_radius);
+	shader->setUniform3Array("u_sample_pos", (float*)&ao_sample_points[0], sample_count);
+	shader->setUniform("u_proj_mat", camera->projection_matrix);
+	Matrix44 p_inv = camera->projection_matrix; //necessary because inverse modifies the matrix so camera->projection_matrix->inverse() would modify the projection matrix
+	if (!p_inv.inverse()) {
+		std::cout << "\nWARNING: projection matrix is not invertible\n";
+	}
+	shader->setUniform("u_inv_proj_mat", p_inv);
+
+	mesh->render(GL_TRIANGLES);
+
+	shader->disable();
+
+	//set the render state as it was before to avoid problems with future renders
+	glDisable(GL_BLEND);
+	glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+}
+
 #ifndef SKIP_IMGUI
 
 void Renderer::showUI()
@@ -954,12 +1012,15 @@ void Renderer::showUI()
 
 	//add here your stuff
 	//...
-	ImGui::SliderFloat("Shininess", &shininess, 0.0f, 100.0f);
+	ImGui::SliderFloat("Shininess", &shininess, 0.01f, 100.0f);
 	ImGui::SliderFloat("ShadowBias", &shadow_bias, 0.001f, 0.005f);
 	ImGui::Checkbox("ForwardFacingCulling", &ffc);
 	ImGui::Checkbox("RenderLightSpheres", &render_spheres);
 
-	
+	//Ambient Occlusion:
+	ImGui::SliderFloat("aoRadius", &ao_radius, 0.01f, 0.09f);
+	ImGui::SliderInt("numPoints", &sample_count, 15, 30);
+
 	//To make sure that only on render mode is on at a time:
 	controlRenderMode();
 
@@ -968,8 +1029,6 @@ void Renderer::showUI()
 	ImGui::Checkbox("LightVolumes", &isLightVol);
 	ImGui::Checkbox("Cook-Torrance", &isCook);
 	ImGui::Checkbox("DeferredCook-Torrance", &isDeferredCook);
-
-
 }
 
 void Renderer::controlRenderMode()

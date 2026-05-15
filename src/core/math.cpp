@@ -1616,26 +1616,34 @@ std::ostream& operator<<(std::ostream& os, const Vector4f& v)
 
 
 std::vector<Vector3f> generateSpherePoints(int num, float radius, bool hemi) {
+	// create an empty vector of num 3D points:
 	std::vector<Vector3f> points;
 	points.resize(num);
 
+	// geneerate each point:
 	for (int i = 0; i < num; i += 1) {
 		Vector3f& p = points[i];
-		float u = random_f();
-		float v = random_f();
-		float theta = u * 2.0 * PI;
-		float phi = acos(2.0 * v - 1.0);
-		float r = cbrt(random_f() * 0.9 + 0.1) * radius;
-		float sinTheta = sin(theta);
-		float cosTheta = cos(theta);
-		float sinPhi = sin(phi);
-		float cosPhi = cos(phi);
-		p.x = r * sinPhi * cosTheta;
-		p.y = r * sinPhi * sinTheta;
-		p.z = r * cosPhi;
+		// generate random 2D coordinates:
+		float u = random_f();			 // [-1.0, +1.0]
+		float v = random_f();			 // [-1.0, +1.0]
+		float theta = u * 2.0 * PI;		 // [-2pi*rad, +2pi*rad]
+		float phi = acos(2.0 * v - 1.0); // [0, pi]
+		float r = cbrt(random_f() * 0.9 + 0.1) * radius; // cuberoot(x) where x in [0.1, 1]
+		// otherwise most of the samples would be clustered near the center
+		// However, in a sphere most of the volume is near the outer shell.
+		float sinTheta = sin(theta);		// [-1, 1]
+		float cosTheta = cos(theta);		// [-1, 1]
+		float sinPhi = sin(phi);			// [0, 1]
+		float cosPhi = cos(phi);			// [-1, 1]
+		// Define the 3D position of the point:
+		p.x = r * sinPhi * cosTheta;		// [-rad, rad]
+		p.y = r * sinPhi * sinTheta;		// [-rad, rad]
+		p.z = r * cosPhi;					// [-rad, rad]
+
+		// hemisphere constraint:
 		if (hemi && p.z < 0)
 			p.z *= -1.0;
 	}
 
-	return points;
+	return points; // return the 3D points
 }

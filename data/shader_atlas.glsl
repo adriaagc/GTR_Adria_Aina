@@ -13,6 +13,7 @@ volume_render basic.vs volume_render.fs
 sphere_render basic.vs sphere_render.fs
 deferred_cook quad.vs deferred_cook.fs
 phong_cook basic.vs phong_cook.fs
+ambient_occlusion quad.vs ambient_occlusion.fs
 
 
 \perturbNormal
@@ -251,7 +252,7 @@ void main()
 
 #version 330 core
 
-in vec3 a_vertex;
+in vec3 a_vertex; 
 in vec2 a_coord;
 out vec2 v_uv;
 
@@ -802,7 +803,8 @@ uniform sampler2D u_gbuffer_color;
 uniform sampler2D u_gbuffer_normal;
 uniform sampler2D u_gbuffer_depth;
 
-uniform vec2 size_screen;
+uniform vec2 u_res_inv;
+
 
 // Color Output:
 out vec4 FragColor;
@@ -810,7 +812,7 @@ out vec4 FragColor;
 
 void main()
 {
-	vec2 screen_size_uv = gl_FragCoord.xy / size_screen; // to sample the gbuffer textures
+	vec2 screen_size_uv = gl_FragCoord.xy * u_res_inv; // to sample the gbuffer textures
 
 // Compute fragment world position: 
 	float depth = texture(u_gbuffer_depth, screen_size_uv).r; // texture range [0,1] stored in first channel
@@ -1171,4 +1173,63 @@ void main()
 	FragColor = vec4(BRDFcolor, color.a);
 	// FragColor = vec4(metallic, roughness, 0.0, 1.0); //Em surt groc per tant llegeixo sermpre textures blanques. 
 
+}
+
+\ambient_occlusion.fs
+
+#version 330 core
+
+const int MAX_POINTS = 30;
+
+in vec2 v_uv; //we can get the uv coordinates from the quad
+
+uniform vec2 u_res_inv;
+uniform int u_sample_count;
+uniform float u_sample_radius;
+uniform vec3 u_sample_pos[MAX_POINTS];
+uniform sampler2D u_gbuffer_depth;
+uniform mat4 u_proj_mat;
+uniform mat4 u_inv_proj_mat;
+
+out vec4 FragColor;
+
+void main()
+{
+	
+	vec2 uv = v_uv + 0.5 * u_res_inv; //center the uv coords in the middle of the pixel
+	float depth = texture(u_gbuffer_depth, uv).r;
+
+//Skip if we are in the sky
+	if (depth >= 1.0) {
+		FragColor = vec4(1.0);
+		return;
+	}
+
+	vec4 clip_coords = vec4(uv.x, uv.y, depth, 1.0); // homogeneous coords
+	clip_coords.xyz = clip_coords.xyz * 2.0 - 1.0; //convert to NDC screen and depth sapce [0,1] --> [-1,1]
+
+	vec4 view_sample_origin = u_inv_proj_mat * clip_coords; // recover the original 3D point in camera sapce
+	view_sample_origin /= view_sample_origin.w; // dehomogenize
+
+	float ao_term = 0.0;
+	for (int i = 0; i < u_sample_count; i++) {
+		vec3 view_sample = u_sample_pos[i];
+		view_sample *= u_sample_radius;
+		view_sample += view_sample_origin.xyz; // sphere is now centered at the 3D point in camera space previously computed
+
+		vec4 proj_sample = u_proj_mat * vec4(view_sample, 1.0); // the projection matrix is 4x4 (View space to Clip space) [-1,1]
+		proj_sample /= proj_sample.w;
+
+		vec2 sample_uv = proj_sample.xy * 0.5 + 0.5; // texture range [0,1]
+		float sample_depth = texture(u_gbuffer_depth, sample_uv).r; // [0,1]
+		sample_depth = sample_depth * 2.0 - 1.0; // to [-1,1]
+
+		// If point is not occluded: 
+		if (proj_sample.z < sample_depth) { 
+			ao_term += 1.0;
+		}
+	}
+
+	ao_term /= u_sample_count; // [0, 1]. Therefore, it is the probability of the point being occluded
+	FragColor = vec4(1.0, 0.0, 0.0, 1.0);
 }
