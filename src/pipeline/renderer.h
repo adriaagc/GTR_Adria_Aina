@@ -59,7 +59,8 @@ namespace SCN {
 
 		bool render_wireframe;
 		bool render_boundaries;
-		
+		bool render_spheres = false; // render light spheres in red
+
 		//toggle between rendering modes:
 		bool isPhong = true;			//single-pass
 		bool isDeferredPhong = false;   //deferred

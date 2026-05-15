@@ -53,7 +53,6 @@ Renderer::Renderer(const char* shader_atlas_filename)
 	//Create the G-Buffer
 	gbuffer = new GFX::FBO();
 	//int width, int height, int num_textures, int format, int type, bool use_depth_texture
-	//Vector2f size(1024, 768); Window size 
 	//gbuffer->create(WIDTH,HEIGHT, 2, GL_RGBA, GL_UNSIGNED_BYTE, true); //2 textures w/ depth
 	gbuffer->create(WIDTH, HEIGHT, 3, GL_RGBA, GL_UNSIGNED_BYTE, true); //2 textures w/ depth
 
@@ -69,7 +68,6 @@ Renderer::~Renderer() {
 			delete fbos[i];
 		}
 	}
-	//if (fbo) delete fbo;
 
 	if (gbuffer) delete gbuffer;
 	if (lighting_FBO) delete lighting_FBO;
@@ -195,7 +193,6 @@ void Renderer::createLightCameras()
 
 void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 {
-	//camera->enable();
 	this->scene = scene;
 	setupScene();
 
@@ -249,12 +246,11 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 			if (isInsideFrustum(&call, camera) != CLIP_OUTSIDE) renderMeshWithMaterial(call.model, call.mesh, call.material);
 		}
 	}
-	
-	//QUAD:
-	GFX::Mesh* quad = GFX::Mesh::getQuad();
 
-//G-BUFFER: 
-	if (isDeferredPhong || isLightVol || isDeferredCook) {
+	else if (isDeferredPhong || isLightVol || isDeferredCook) {
+	//QUAD:
+		GFX::Mesh* quad = GFX::Mesh::getQuad();
+	//G-BUFFER:
 		gbuffer->bind();
 		GLenum buffers[] = { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2 };// As we are storing more than one texture
 		glDrawBuffers(3, buffers);
@@ -264,7 +260,6 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 			if (isInsideFrustum(&call, camera) != CLIP_OUTSIDE) renderGBuffer(call.model, call.mesh, call.material);
 		}
 		gbuffer->unbind();
-
 	//LIGHT VOLUMES:
 		if (isLightVol) {
 			gbuffer->depth_texture->copyTo(lighting_FBO->depth_texture);
@@ -277,40 +272,43 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 
 			//RENDER LIGHT VOLUMES:
 			renderLightVolume();
-			//renderLightSpheres();
+			
+			if (render_spheres) {
+				renderLightSpheres();
+			}
+
+			for (sRenderable call : translucent_list) {
+				if (isInsideFrustum(&call, camera) != CLIP_OUTSIDE) renderMeshWithMaterial(call.model, call.mesh, call.material);
+			}
 
 			lighting_FBO->unbind(); //reset rendering to the framebuffer.
 
 			lighting_FBO->color_textures[0]->toViewport();
+
 		}
 	//DEFERRED COOK-TORRANCE:
 		else if (isDeferredCook) {
 			renderCookDeferred(quad);
-			renderQuadMesh(quad);
-
-			for (sRenderable call : opaque_list) {
-				if (isInsideFrustum(&call, camera) != CLIP_OUTSIDE) renderCookDeferred(quad);
-			}
 		}
 	//DEFERRED PHONG:
 		else {
-			for (sRenderable call : opaque_list) {
-				if (isInsideFrustum(&call, camera) != CLIP_OUTSIDE) renderQuadMesh(quad);
-			}
+			renderQuadMesh(quad);
 		}
-
-		
 	}
 
-	if (isCook) {
+	else { //if isCook == True
 		for (sRenderable call : opaque_list) {
 			if (isInsideFrustum(&call, camera) != CLIP_OUTSIDE) renderCook(call.model, call.mesh, call.material);
 		}
 	}
+	
+	//glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
 	// At the end, render the translucent objects:
-	for (sRenderable call : translucent_list) {
-		if (isInsideFrustum(&call, camera) != CLIP_OUTSIDE) renderMeshWithMaterial(call.model, call.mesh, call.material);
+	if (!isLightVol) {
+		for (sRenderable call : translucent_list) {
+			if (isInsideFrustum(&call, camera) != CLIP_OUTSIDE) renderMeshWithMaterial(call.model, call.mesh, call.material);
+		}
 	}
 }
 
@@ -482,6 +480,11 @@ void Renderer::renderLightSpheres()
 		shader->setUniform("u_viewprojection", camera->viewprojection_matrix);
 		shader->setUniform("u_model", model);
 
+		// Render just the verticies as a wireframe
+		if (render_wireframe)
+			glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+
+		//Render the spheres
 		light_vol.render(GL_TRIANGLES);
 
 	}
@@ -724,6 +727,7 @@ void Renderer::renderSkybox(GFX::Texture* cubemap)
 	shader->disable();
 
 	// Return opengl state to default
+	glDisable(GL_BLEND);
 	glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 	glEnable(GL_DEPTH_TEST);
 }
@@ -953,6 +957,8 @@ void Renderer::showUI()
 	ImGui::SliderFloat("Shininess", &shininess, 0.0f, 100.0f);
 	ImGui::SliderFloat("ShadowBias", &shadow_bias, 0.001f, 0.005f);
 	ImGui::Checkbox("ForwardFacingCulling", &ffc);
+	ImGui::Checkbox("RenderLightSpheres", &render_spheres);
+
 	
 	//To make sure that only on render mode is on at a time:
 	controlRenderMode();
