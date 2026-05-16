@@ -99,6 +99,15 @@ namespace SCN {
 		bool isBaked = false;
 		std::vector<Vector3f> ao_sample_points;
 
+	//Tonemapper
+		float tm_scale = 1.0f;
+		float tm_average_lum = 0.5f;
+		float tm_lumwhite2 = 1.0f;
+		float tm_igamma = 1.0f / 2.2f;
+
+		std::pair<float, float> computeLumStats(GFX::Texture* texture);
+		void renderTonemapper(GFX::Mesh* mesh, GFX:: Texture* texture);
+
 		//updated every frame
 		Renderer(const char* shaders_atlas_filename );
 		~Renderer();
