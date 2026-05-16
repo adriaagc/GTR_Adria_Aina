@@ -16,6 +16,17 @@ phong_cook basic.vs phong_cook.fs
 ambient_occlusion quad.vs ambient_occlusion.fs
 blur quad.vs blur.fs
 
+\gamma_functions
+
+//From sRGB to linear:
+vec3 degamma(vec3 c){
+	return pow(c,vec3(2.2));
+}
+
+//From linear to sRGB:
+vec3 gamma(vec3 c){
+	return pow(c,vec3(1.0/2.2));
+}
 
 \perturbNormal
 
@@ -434,6 +445,7 @@ void main()
 #include "perturbNormal"
 #include "computeShadow"
 #include "lighting_functions"
+#include "gamma_functions"
 
 //From basic.vs:
 in vec3 v_position;
@@ -475,19 +487,20 @@ out vec4 FragColor;
 void main() 
 {
 
-	vec4 color = u_color;
-	color *= texture(u_texture, v_uv);
+	vec4 color = vec4(degamma(u_color.xyz), u_color.a);
+	vec4 albedo_color = texture(u_texture, v_uv);
+	color *= vec4(degamma(albedo_color.xyz), albedo_color.a); //color multiplied by texture color (with alpha cutoff already applied)
 	if (color.a < u_alpha_cutoff) 
 		discard;
 
-	vec3 k = color.rgb; //k = k_a = k_s = k_d
+	vec3 k = color.rgb; //k = k_a = k_s = k_d;
 
 //VARIABLES TO BE USED:
 	int s = 0; //to know in which shadowmap we are
 	float shadow;
 
 //AMBIENT LIGHT:
-	vec3 phong = u_ambient_light * k;
+	vec3 phong = degamma(u_ambient_light) * k;
 
 //NORMALS WITH NORMALMAPS:
 	vec3 nm_color = normalize((texture(u_normalmap, v_uv).xyz * 2.0) - 1.0); //color sampled from the normalmap converted to a range [-1,1]
@@ -496,13 +509,14 @@ void main()
 	diffuseSpecular res;
 	vec3 diffuse = vec3(0.0);
 	vec3 specular = vec3(0.0);
+	// vec3 light_color = vec3(0.0);
 
 	for(int i = 0; i<MAX_LIGHTS; i++) {
 		if (i < u_num_lights) {
-		
+			// light_color = degamma(u_light_color[i]);
 	//POINT LIGHT
 			if (u_light_type[i] == 1) {
-				res = point_light_reflection(u_light_pos[i], v_world_position, u_intensity[i], u_light_color[i], N, u_camera_pos, u_shininess);
+				res = point_light_reflection(u_light_pos[i], v_world_position, u_intensity[i], degamma(u_light_color[i]), N, u_camera_pos, u_shininess);
 			} 
 	//DIRECTIONAL LIGHT
 			else if (u_light_type[i] == 3) {
@@ -510,7 +524,7 @@ void main()
 				shadow = isShadow(u_shadow_vps[s], v_world_position, u_shadowmaps[s], u_shadow_bias);
 				s += 1;
 
-				res = directional_light_reflection(shadow, u_intensity[i], u_shininess,  u_light_color[i], u_light_front[i], N, u_camera_pos, v_world_position);
+				res = directional_light_reflection(shadow, u_intensity[i], u_shininess,  degamma(u_light_color[i]), u_light_front[i], N, u_camera_pos, v_world_position);
 			}
 	//SPOT LIGHT
 			else {
@@ -518,7 +532,7 @@ void main()
 				shadow = isShadow(u_shadow_vps[s], v_world_position, u_shadowmaps[s], u_shadow_bias);
 				s += 1;
 
-				res = spot_light_reflection(u_light_pos[i], v_world_position, u_light_front[i], u_light_cone[i], u_intensity[i], u_light_color[i], shadow, N, u_shininess, u_camera_pos);
+				res = spot_light_reflection(u_light_pos[i], v_world_position, u_light_front[i], u_light_cone[i], u_intensity[i], degamma(u_light_color[i]), shadow, N, u_shininess, u_camera_pos);
 			}
 		}
 		diffuse += res.d;
@@ -526,8 +540,7 @@ void main()
 	}
 
 	phong += k*(diffuse + specular);
-	FragColor = vec4(phong, color.a);
-
+	FragColor = vec4(gamma(phong), color.a);
 }
 
 
@@ -610,6 +623,8 @@ void main()
 #version 330 core
 #include "computeShadow"
 #include "lighting_functions"
+#include "gamma_functions"
+
 
 // From quad.vs:
 in vec2 v_uv; // to sample textures
@@ -661,10 +676,10 @@ void main()
 
 // Fragment's initial color -> without lighting
 	vec4 color = texture(u_gbuffer_color, v_uv);
-	vec3 k = color.rgb; //k = k_a = k_s = k_d
+	vec3 k = degamma(color.rgb); //k = k_a = k_s = k_d
 
 //AMBIENT LIGHT:
-	vec3 phong = u_ambient_light * k;
+	vec3 phong =degamma(u_ambient_light) * k;
 
 	// VARIABLES:
 	vec3 diffuse = vec3(0.0);
@@ -675,33 +690,31 @@ void main()
 
 	for (int i = 0; i < MAX_LIGHTS; i++) {
 		if(i >= u_num_lights) break;
+		vec3 light_color = degamma(u_light_color[i]);
 	//POINT LIGHT
 		if (u_light_type[i] == 1) {
-			res = point_light_reflection(u_light_pos[i], world_pos, u_intensity[i], u_light_color[i], N, u_camera_pos, u_shininess);
+			res = point_light_reflection(u_light_pos[i], world_pos, u_intensity[i], light_color, N, u_camera_pos, u_shininess);
 		}
 	//DIRECTIONAL LIGHT 
 		else if (u_light_type[i] == 3) {
 		//SHADOWS:
 			shadow = isShadow(u_shadow_vps[s], world_pos, u_shadowmaps[s], u_shadow_bias);
 			s += 1;
-			res = directional_light_reflection(shadow, u_intensity[i], u_shininess, u_light_color[i], u_light_front[i], N, u_camera_pos, world_pos);
+			res = directional_light_reflection(shadow, u_intensity[i], u_shininess, light_color, u_light_front[i], N, u_camera_pos, world_pos);
 		}
 	//SPOT LIGHT 
 		else {
 		//SHADOWS:
 			shadow = isShadow(u_shadow_vps[s], world_pos, u_shadowmaps[s], u_shadow_bias);
 			s += 1;
-			res = spot_light_reflection(u_light_pos[i], world_pos, u_light_front[i], u_light_cone[i], u_intensity[i], u_light_color[i], shadow, N, u_shininess, u_camera_pos);
+			res = spot_light_reflection(u_light_pos[i], world_pos, u_light_front[i], u_light_cone[i], u_intensity[i], light_color, shadow, N, u_shininess, u_camera_pos);
 		}
-		
 		diffuse += res.d;
 		specular += res.s;
 	}
 	phong += k*(diffuse + specular);
-
-	FragColor = vec4(phong, color.a);
+	FragColor = vec4(gamma(phong), color.a);
 }
-
 
 //-------------------------------------------------------------------------//
 //						AMBIENT & DIRECTIONAL LIGHT						   //
@@ -712,6 +725,7 @@ void main()
 #version 330 core
 #include "computeShadow"
 #include "lighting_functions"
+#include "gamma_functions"
 
 //From quad.vs:
 in vec2 v_uv; //in texture space [0,1]
@@ -749,10 +763,7 @@ void main()
 	float depth = texture(u_gbuffer_depth, v_uv).r; // texture range [0,1] stored in first channel
 	if (depth >= 1.0) discard; // If the depth is so large then it belongs to the background or skybox!
 	vec4 color = texture(u_gbuffer_color, v_uv); //no need for alpha cutoff already done when filling the gbuffer
-	vec3 k = color.rgb;
-
-//There is no attenuation:
-	vec3 light_intensity = u_intensity * u_light_color;
+	vec3 k = degamma(color.rgb);
 
 // Compute fragment world position: 
 	float depth_clip = 2.0 * depth - 1.0; // clip space range [-1, 1]
@@ -769,15 +780,15 @@ void main()
 	vec3 N = normalize(normal);
 
 //DIRECTIONAL LIGHT:
-	diffuseSpecular res = directional_light_reflection(shadow, u_intensity, u_shininess, u_light_color, u_light_front, N, u_camera_pos, world_pos);
+	diffuseSpecular res = directional_light_reflection(shadow, u_intensity, u_shininess, degamma(u_light_color), u_light_front, N, u_camera_pos, world_pos);
 
 //AMBIENT OCCLUSION:
 	float ao_term = texture(u_ambient_occlusion, v_uv).r;
-	vec3 ao_light = u_ambient_light * ao_term;
+	vec3 ao_light = degamma(u_ambient_light) * ao_term;
 
 //AMBIENT + DIRECTIONAL W/ SHADOWS:
 	vec3 phong = k*(ao_light + res.d + res.s);
-	FragColor = vec4(phong, color.a);
+	FragColor = vec4(gamma(phong), color.a);
 }
 
 //-------------------------------------------------------------------------//
@@ -789,6 +800,7 @@ void main()
 # version 330 core
 #include "computeShadow"
 #include "lighting_functions"
+#include "gamma_functions"
 
 // From basic.vs:
 in vec2 v_uv; // to sample textures
@@ -843,7 +855,7 @@ void main()
 
 // Fragment's initial color -> without lighting
 	vec4 color = texture(u_gbuffer_color, screen_size_uv);
-	vec3 k = color.rgb; //k = k_a = k_s = k_d
+	vec3 k = degamma(color.rgb); //k = k_a = k_s = k_d
 	
 // Define some variables:
 	diffuseSpecular res;
@@ -852,18 +864,18 @@ void main()
 
 //POINT LIGHT:
 	if (u_light_type == 1) {
-			res = point_light_reflection(u_light_pos, world_pos, u_intensity, u_light_color, N, u_camera_pos, u_shininess);		
+			res = point_light_reflection(u_light_pos, world_pos, u_intensity, degamma(u_light_color), N, u_camera_pos, u_shininess);		
 		}
 //SPOT LIGHT
 	else {
 		//SHADOWS:
 			shadow = isShadow(u_shadow_vps, world_pos, u_shadowmaps, u_shadow_bias);
-			res = spot_light_reflection(u_light_pos, world_pos, u_light_front, u_light_cone, u_intensity, u_light_color, shadow, N, u_shininess, u_camera_pos);
+			res = spot_light_reflection(u_light_pos, world_pos, u_light_front, u_light_cone, u_intensity, degamma(u_light_color), shadow, N, u_shininess, u_camera_pos);
 	}
 	
 	phong = k*(res.d + res.s);
 
-	FragColor = vec4(phong, color.a);
+	FragColor = vec4(gamma(phong), color.a);
 }
 
 
@@ -885,6 +897,7 @@ void main()
 #version 330 core
 #include "computeShadow"
 #include "PBR_functions"
+#include "gamma_functions"
 
 
 // From quad.vs:
@@ -943,14 +956,14 @@ void main()
 
 // Fragment's initial color -> without lighting
 	vec4 color = texture(u_gbuffer_color, v_uv);
-	vec3 k = color.rgb; //k = k_a = k_s = k_d
+	vec3 k = degamma(color.rgb); //k = k_a = k_s = k_d
 
 // Define some variables:
  	vec3 L_vec, L, light_intensity, diffuse_contrib, R, V, specular_contrib, D;
 	float d, attenuation, RV, LD, alpha_max, alpha_min, attenuation_distance, attenuation_angle, shadow;
 
 //AMBIENT LIGHT:
-	vec3 BRDFcolor = u_ambient_light * k;
+	vec3 BRDFcolor = degamma(u_ambient_light) * k;
 	vec3 outgoing_light = vec3(0.0);
 
 	//CUMULATIVE VARIABLES:
@@ -969,7 +982,7 @@ void main()
 			L = normalize(L_vec);
 			d = length(L_vec);
 			attenuation = u_intensity[i]/pow(d,2);
-			light_intensity = attenuation * u_light_color[i]; // what reaches the point
+			light_intensity = attenuation * degamma(u_light_color[i]); // what reaches the point
 			V = normalize(u_camera_pos - world_pos);
 			
 			float LN = clamp(dot(L,N), 0.0, 1.0);
@@ -980,7 +993,7 @@ void main()
 	//DIRECTION LIGHT 
 		else if (u_light_type[i] == 3) {
 		//There is no attenuation:
-			light_intensity = u_intensity[i] * u_light_color[i];
+			light_intensity = u_intensity[i] * degamma(u_light_color[i]);
 
 		//SHADOWS:
 			shadow = isShadow(u_shadow_vps[s], world_pos, u_shadowmaps[s], u_shadow_bias);
@@ -1008,7 +1021,7 @@ void main()
 				attenuation_distance = u_intensity[i] / pow(d,2); // attenuation of light by distance between point and light source
 				attenuation_angle = clamp((LD - alpha_max) / (alpha_min - alpha_max), 0.0, 1.0);
 				attenuation = attenuation_distance * attenuation_angle;
-				light_intensity = u_light_color[i] * attenuation;
+				light_intensity = degamma(u_light_color[i]) * attenuation;
 			//SHADOWS: only if the pixel is illuminated by the spot light
 				shadow = isShadow(u_shadow_vps[s], world_pos, u_shadowmaps[s], u_shadow_bias);
 			}
@@ -1023,13 +1036,12 @@ void main()
 			V = normalize(u_camera_pos - world_pos);
 			float LN = clamp(dot(L,N), 0.0, 1.0);
 			outgoing_light = cookTorrance(L, V, k, metallic, roughness, N) * light_intensity * LN * shadow;
-
 		}
 
 		BRDFcolor += outgoing_light;
 	}
 
-	FragColor = vec4(BRDFcolor, color.a);
+	FragColor = vec4(gamma(BRDFcolor), color.a);
 }
 
 
@@ -1043,6 +1055,7 @@ void main()
 #include "perturbNormal"
 #include "computeShadow"
 #include "PBR_functions"
+#include "gamma_functions"
 
 //From basic.vs:
 in vec3 v_position;
@@ -1089,8 +1102,9 @@ out vec4 FragColor;
 void main() 
 {
 
-	vec4 color = u_color;
-	color *= texture(u_texture, v_uv);
+	vec4 color = vec4(degamma(u_color.xyz), u_color.a);
+	vec4 albedo_color = texture(u_texture, v_uv);
+	color *= vec4(degamma(albedo_color.xyz), albedo_color.a); //color multiplied by texture color (with alpha cutoff already applied)
 	if (color.a < u_alpha_cutoff) 
 		discard;
 
@@ -1102,7 +1116,7 @@ void main()
 	int s = 0; //to know in which shadowmap we are
 
 //AMBIENT LIGHT:
-	vec3 BRDFcolor = u_ambient_light * k;
+	vec3 BRDFcolor = degamma(u_ambient_light) * k;
 
 //NORMALS WITH NORMALMAPS:
 	vec3 nm_color = normalize((texture(u_normalmap, v_uv).xyz * 2.0) - 1.0); //color sampled from the normalmap converted to a range [-1,1]
@@ -1125,7 +1139,7 @@ void main()
 				L = normalize(L_vec);
 				d = length(L_vec);
 				attenuation = u_intensity[i]/pow(d,2);
-				light_intensity = attenuation * u_light_color[i]; // what reaches the point
+				light_intensity = attenuation * degamma(u_light_color[i]); // what reaches the point
 				V = normalize(u_camera_pos - v_world_position);
 			
 				float LN = clamp(dot(L,N), 0.0, 1.0);
@@ -1136,7 +1150,7 @@ void main()
 	//DIRECTIONAL LIGHT
 			else if (u_light_type[i] == 3) {
 			//There is no attenuation:
-				light_intensity = u_intensity[i] * u_light_color[i];
+				light_intensity = u_intensity[i] * degamma(u_light_color[i]);
 
 			//SHADOWS:
 				shadow = isShadow(u_shadow_vps[s], v_world_position, u_shadowmaps[s], u_shadow_bias);
@@ -1162,7 +1176,7 @@ void main()
 					attenuation_distance = u_intensity[i] / pow(d,2); // attenuation of light by distance between point and light source
 					attenuation_angle = clamp((LD - alpha_max) / (alpha_min - alpha_max), 0.0, 1.0);
 					attenuation = attenuation_distance * attenuation_angle;
-					light_intensity = u_light_color[i] * attenuation;
+					light_intensity = degamma(u_light_color[i]) * attenuation;
 
 				//SHADOWS: only if the pixel is illuminated by the spot light
 					shadow = isShadow(u_shadow_vps[s], v_world_position, u_shadowmaps[s], u_shadow_bias);
@@ -1181,12 +1195,10 @@ void main()
 			}
 			BRDFcolor += outgoing_light;
 		}
-		
 	}
 
-	FragColor = vec4(BRDFcolor, color.a);
+	FragColor = vec4(gamma(BRDFcolor), color.a);
 	// FragColor = vec4(metallic, roughness, 0.0, 1.0); //Em surt groc per tant llegeixo sermpre textures blanques. 
-
 }
 
 \ambient_occlusion.fs
@@ -1225,9 +1237,11 @@ void main()
 		return;
 	}
 
-	vec3 N = normalize(texture(u_gbuffer_normal, uv).xyz);
+	// vec3 N = normalize(texture(u_gbuffer_normal, uv).xyz);
+	vec3 N = normalize(texture(u_gbuffer_normal, uv).xyz *2.0 -1.0); //les necessito en coordenades de [-1,1] que son 
 	N = (u_view_mat * vec4(N, 0.0)).xyz; // we want to rotate a direction so we are not interested in translations -> last coord 0.0.
-	
+	//ara la N en view space. 
+
 	// TBN matrix
 	vec3 v = vec3(0.0, 1.0, 0.0);
 	vec3 T = normalize(v - N * dot(v,N)); // tangent
