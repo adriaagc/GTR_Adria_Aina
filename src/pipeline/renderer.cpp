@@ -324,6 +324,8 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 			if (isInsideFrustum(&call, camera) != CLIP_OUTSIDE) renderMeshWithMaterial(call.model, call.mesh, call.material);
 		}
 	}
+
+	//ssao_FBO->color_textures[0]->toViewport();
 }
 
 void Renderer::renderCook(const Matrix44 model, GFX::Mesh* mesh, SCN::Material* material)
@@ -407,7 +409,8 @@ void Renderer::renderAmbient(GFX::Mesh* mesh)
 {
 	GFX::Shader* shader = NULL;
 
-	glDisable(GL_DEPTH_TEST);
+	glEnable(GL_DEPTH_TEST);
+	glDepthMask(GL_FALSE); // we do not want to write to the depth_texture
 
 	//chose a shader
 	shader = GFX::Shader::Get("ambient_render");
@@ -462,8 +465,7 @@ void Renderer::renderAmbient(GFX::Mesh* mesh)
 	//set the render state as it was before to avoid problems with future renders
 	glDisable(GL_BLEND);
 	glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-	assert(glGetError() == GL_NO_ERROR);
-
+	glDepthMask(GL_TRUE);
 }
 
 void Renderer::renderLightSpheres()
@@ -471,7 +473,10 @@ void Renderer::renderLightSpheres()
 	GFX::Shader* shader = NULL;
 	Camera* camera = Camera::current;
 
-	glDisable(GL_DEPTH_TEST);
+	glEnable(GL_DEPTH_TEST);
+	glDepthMask(GL_FALSE);
+	glEnable(GL_CULL_FACE); // we don't want to see the sphere from the inside
+	glCullFace(GL_BACK); // skip back-faces
 
 	shader = GFX::Shader::Get("sphere_render");
 	if (!shader)
@@ -506,8 +511,9 @@ void Renderer::renderLightSpheres()
 
 	glDisable(GL_BLEND);
 	glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-	glEnable(GL_DEPTH_TEST);
-
+	glEnable(GL_CULL_FACE);
+	glCullFace(GL_BACK);
+	glDepthMask(GL_TRUE);
 }
 
 void Renderer::renderLightVolume()
@@ -516,14 +522,21 @@ void Renderer::renderLightVolume()
 	GFX::Shader* shader = NULL;
 	Camera* camera = Camera::current;
 
-	//OpenGL config
+//OpenGL config:
+
 	//glDisable(GL_CULL_FACE);
-	glDepthFunc(GL_GREATER); //only render those fragments inside the sphere (depth_frag > depth_buffer) that is geometry is in front of sphere's backaface
-	glDepthMask(GL_FALSE); //do not modify/write to the depthbuffer. (avoid overwriting the scene with the light volumes)
-	glEnable(GL_DEPTH_TEST); //however, we still want that the depth of the sphere is compared against the depth of the scene (already stored)
-	glBlendFunc(GL_ONE, GL_ONE); //additive blending: sum the computed color in FragColor to the prev color.
-	glEnable(GL_BLEND); //so that glBlendFunc(GL_ONE, GL_ONE) has effect otherwise FragColor would replace the prev color.
-	glFrontFace(GL_CW);
+	//only render those fragments inside the sphere (depth_frag > depth_buffer) that is geometry is in front of sphere's backaface
+	glDepthFunc(GL_GREATER); 
+	//do not modify/write to the depthbuffer. (avoid overwriting the scene with the light volumes)
+	glDepthMask(GL_FALSE); 
+	//however, we still want that the depth of the sphere is compared against the depth of the scene (already stored)
+	glEnable(GL_DEPTH_TEST); 
+	//additive blending: sum the computed color in FragColor to the prev color.
+	glBlendFunc(GL_ONE, GL_ONE); 
+	//so that glBlendFunc(GL_ONE, GL_ONE) has effect otherwise FragColor would replace the prev color.
+	glEnable(GL_BLEND); 
+	//we tell OpenGL that the triangles defined with clockwise vertices (1->2->3) are processed as front-facing triangles.
+	glFrontFace(GL_CW); //camera is inside the light volume. Therefore, now the back-face triangles are front-facing.
 
 	assert(glGetError() == GL_NO_ERROR);
 
@@ -666,6 +679,9 @@ void Renderer::renderGBuffer(const Matrix44 model, GFX::Mesh* mesh, SCN::Materia
 	Camera* camera = Camera::current;
 
 	glEnable(GL_DEPTH_TEST);
+	glDepthFunc(GL_LESS);
+	glDepthMask(GL_TRUE); //Enable writing to the depth_buffer
+
 
 	//chose a shader
 	shader = GFX::Shader::Get("fill_gbuffer");
@@ -714,7 +730,7 @@ void Renderer::renderSkybox(GFX::Texture* cubemap)
 	// Set the culling aproppiately, since we just want the back faces
 	glDisable(GL_BLEND);
 	glDisable(GL_DEPTH_TEST);
-	glDisable(GL_CULL_FACE);
+	glDisable(GL_CULL_FACE); // we are inside the skybox. Therefore, we want to render the inside (back) faces too.
 
 	if (render_wireframe)
 		glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
@@ -981,8 +997,15 @@ void Renderer::renderAmbientOcclusion(GFX::Mesh* mesh)
 		return;
 	shader->enable();
 
-	shader->setUniform("u_res_inv", vec2(ssao_FBO->color_textures[0]->width, ssao_FBO->color_textures[0]->height));
+	if (prev_sample_count != sample_count) {
+		prev_sample_count = sample_count; // update
+		ao_sample_points = generateSpherePoints(sample_count, 1.0, hemi); //generate random samples inside sphere of radius 1
+	}
+
+	shader->setUniform("u_res_inv", vec2(1.0f/ssao_FBO->color_textures[0]->width, 1.0f/ssao_FBO->color_textures[0]->height));
 	shader->setUniform("u_gbuffer_depth", gbuffer->depth_texture, 0);
+	shader->setUniform("u_gbuffer_normal", gbuffer->color_textures[1], 1);
+	shader->setUniform("u_gbuffer_metallic_roughness", gbuffer->color_textures[2], 2);
 	shader->setUniform("u_sample_count", sample_count);
 	shader->setUniform("u_sample_radius", ao_radius);
 	shader->setUniform3Array("u_sample_pos", (float*)&ao_sample_points[0], sample_count);
@@ -992,6 +1015,11 @@ void Renderer::renderAmbientOcclusion(GFX::Mesh* mesh)
 		std::cout << "\nWARNING: projection matrix is not invertible\n";
 	}
 	shader->setUniform("u_inv_proj_mat", p_inv);
+	shader->setUniform("isHemi", hemi);
+	shader->setUniform("u_view_mat", camera->view_matrix);
+	shader->setUniform("near", camera->near_plane);
+	shader->setUniform("far", camera->far_plane);
+	shader->setUniform("isBaked", isBaked);
 
 	mesh->render(GL_TRIANGLES);
 
@@ -1020,6 +1048,8 @@ void Renderer::showUI()
 	//Ambient Occlusion:
 	ImGui::SliderFloat("aoRadius", &ao_radius, 0.01f, 0.09f);
 	ImGui::SliderInt("numPoints", &sample_count, 15, 30);
+	ImGui::Checkbox("Hemisphere", &hemi);
+	ImGui::Checkbox("BakedAO", &isBaked);
 
 	//To make sure that only on render mode is on at a time:
 	controlRenderMode();

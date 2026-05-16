@@ -91,8 +91,11 @@ namespace SCN {
 	//Ambient Occlusion:
 		GFX::FBO* ssao_FBO;
 		int sample_count = 15;
+		int prev_sample_count = 15;
 		float ao_radius = 0.01;
 		bool hemi = false;
+		//bool prev_hemi = false;
+		bool isBaked = false;
 		std::vector<Vector3f> ao_sample_points;
 
 		//updated every frame

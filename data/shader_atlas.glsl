@@ -205,6 +205,12 @@ vec3 cookTorrance(vec3 L, vec3 V, vec3 albedo, float metalness, float roughness,
 	return diff + spec;
 } 
 
+\linear_depth
+
+float depthToLinear(float z, float near, float far)
+{
+	return near * (z + 1.0) / (far + near - z * (far - near));
+}
 
 \basic.vs
 
@@ -557,7 +563,7 @@ void main()
 \fill_gbuffer.fs
 
 #version 330 core
-#include perturbNormal
+#include "perturbNormal"
 
 in vec2 v_uv; // to sample textures
 in vec3 v_normal; // normal in 
@@ -601,8 +607,8 @@ void main()
 \deferred_phong.fs
 
 #version 330 core
-#include computeShadow
-#include lighting_functions
+#include "computeShadow"
+#include "lighting_functions"
 
 // From quad.vs:
 in vec2 v_uv; // to sample textures
@@ -703,8 +709,8 @@ void main()
 \ambient_render.fs
 
 #version 330 core
-#include computeShadow 
-#include lighting_functions
+#include "computeShadow"
+#include "lighting_functions"
 
 //From quad.vs:
 in vec2 v_uv; //in texture space [0,1]
@@ -773,8 +779,8 @@ void main()
 \volume_render.fs
 
 # version 330 core
-#include computeShadow
-#include lighting_functions
+#include "computeShadow"
+#include "lighting_functions"
 
 // From basic.vs:
 in vec2 v_uv; // to sample textures
@@ -869,8 +875,8 @@ void main()
 \deferred_cook.fs
 
 #version 330 core
-#include computeShadow
-#include PBR_functions
+#include "computeShadow"
+#include "PBR_functions"
 
 
 // From quad.vs:
@@ -1028,7 +1034,7 @@ void main()
 #version 330 core
 #include "perturbNormal"
 #include "computeShadow"
-#include PBR_functions
+#include "PBR_functions"
 
 //From basic.vs:
 in vec3 v_position;
@@ -1178,32 +1184,47 @@ void main()
 \ambient_occlusion.fs
 
 #version 330 core
-
-const int MAX_POINTS = 30;
+#include "linear_depth"
 
 in vec2 v_uv; //we can get the uv coordinates from the quad
 
+const int MAX_POINTS = 30;
 uniform vec2 u_res_inv;
+uniform sampler2D u_gbuffer_depth;
+uniform sampler2D u_gbuffer_normal;
+uniform sampler2D u_gbuffer_metallic_roughness;
 uniform int u_sample_count;
 uniform float u_sample_radius;
 uniform vec3 u_sample_pos[MAX_POINTS];
-uniform sampler2D u_gbuffer_depth;
 uniform mat4 u_proj_mat;
 uniform mat4 u_inv_proj_mat;
+uniform mat4 u_view_mat;
+uniform bool isHemi;
+uniform float near;
+uniform float far;
+uniform bool isBaked;
 
 out vec4 FragColor;
 
 void main()
 {
-	
 	vec2 uv = v_uv + 0.5 * u_res_inv; //center the uv coords in the middle of the pixel
-	float depth = texture(u_gbuffer_depth, uv).r;
+	float depth = texture(u_gbuffer_depth, uv).r;	
 
 //Skip if we are in the sky
 	if (depth >= 1.0) {
 		FragColor = vec4(1.0);
 		return;
 	}
+
+	vec3 N = normalize(texture(u_gbuffer_normal, uv).xyz);
+	N = (u_view_mat * vec4(N, 0.0)).xyz; // we want to rotate a direction so we are not interested in translations -> last coord 0.0.
+	
+	// TBN matrix
+	vec3 v = vec3(0.0, 1.0, 0.0);
+	vec3 T = normalize(v - N * dot(v,N)); // tangent
+	vec3 B = cross(N,T); // bitangent
+	mat3 rotmat = mat3(T, B, N); 
 
 	vec4 clip_coords = vec4(uv.x, uv.y, depth, 1.0); // homogeneous coords
 	clip_coords.xyz = clip_coords.xyz * 2.0 - 1.0; //convert to NDC screen and depth sapce [0,1] --> [-1,1]
@@ -1214,6 +1235,12 @@ void main()
 	float ao_term = 0.0;
 	for (int i = 0; i < u_sample_count; i++) {
 		vec3 view_sample = u_sample_pos[i];
+		if (isHemi) {
+			if (view_sample.z < 0){
+				view_sample.z *= -1.0;
+			}
+			view_sample = rotmat * view_sample;
+		}
 		view_sample *= u_sample_radius;
 		view_sample += view_sample_origin.xyz; // sphere is now centered at the 3D point in camera space previously computed
 
@@ -1231,5 +1258,9 @@ void main()
 	}
 
 	ao_term /= u_sample_count; // [0, 1]. Therefore, it is the probability of the point being occluded
-	FragColor = vec4(1.0, 0.0, 0.0, 1.0);
+	if (isBaked) {
+		float baked_ao = texture(u_gbuffer_metallic_roughness, uv).r;
+		ao_term = min(ao_term, baked_ao);
+	}
+	FragColor = vec4(ao_term);
 }
