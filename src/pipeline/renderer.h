@@ -90,6 +90,7 @@ namespace SCN {
 
 	//Ambient Occlusion:
 		GFX::FBO* ssao_FBO;
+		GFX::FBO* half_ssao_FBO;
 		int sample_count = 15;
 		int prev_sample_count = 15;
 		float ao_radius = 0.01;
@@ -143,6 +144,8 @@ namespace SCN {
 		void renderCook(const Matrix44 model, GFX::Mesh* mesh, SCN::Material* material);
 
 		void renderAmbientOcclusion(GFX::Mesh* mesh);
+		void blurFBO(GFX::Mesh* mesh);
+
 
 		void showUI();
 		void controlRenderMode();

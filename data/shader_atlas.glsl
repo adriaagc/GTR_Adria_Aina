@@ -14,6 +14,7 @@ sphere_render basic.vs sphere_render.fs
 deferred_cook quad.vs deferred_cook.fs
 phong_cook basic.vs phong_cook.fs
 ambient_occlusion quad.vs ambient_occlusion.fs
+blur quad.vs blur.fs
 
 
 \perturbNormal
@@ -724,6 +725,9 @@ uniform sampler2D u_gbuffer_color;
 uniform sampler2D u_gbuffer_depth;
 uniform sampler2D u_gbuffer_normal;
 
+//Ambient Occlusion:
+uniform sampler2D u_ambient_occlusion;
+
 //Light:
 uniform vec3 u_ambient_light;
 uniform float u_intensity;
@@ -767,8 +771,12 @@ void main()
 //DIRECTIONAL LIGHT:
 	diffuseSpecular res = directional_light_reflection(shadow, u_intensity, u_shininess, u_light_color, u_light_front, N, u_camera_pos, world_pos);
 
+//AMBIENT OCCLUSION:
+	float ao_term = texture(u_ambient_occlusion, v_uv).r;
+	vec3 ao_light = u_ambient_light * ao_term;
+
 //AMBIENT + DIRECTIONAL W/ SHADOWS:
-	vec3 phong = k*(u_ambient_light + res.d + res.s);
+	vec3 phong = k*(ao_light + res.d + res.s);
 	FragColor = vec4(phong, color.a);
 }
 
@@ -1213,7 +1221,7 @@ void main()
 
 //Skip if we are in the sky
 	if (depth >= 1.0) {
-		FragColor = vec4(1.0);
+		FragColor = vec4(1.0); // white
 		return;
 	}
 
@@ -1263,4 +1271,70 @@ void main()
 		ao_term = min(ao_term, baked_ao);
 	}
 	FragColor = vec4(ao_term);
+}
+
+\blur.fs
+
+in vec2 v_uv;
+
+uniform sampler2D u_input_texture;
+uniform vec2 u_texture_size_inv;
+
+out vec4 FragColor;
+
+// 33x33 kernel
+const int M = 16; 		 // half_window = 16
+const int N = 2 * M + 1; // window_size = 33
+
+// sigma = 10
+const float coeffs[N] = float[N](
+	0.012318109844189502,
+	0.014381474814203989,
+	0.016623532195728208,
+	0.019024086115486723,
+	0.02155484948872149,
+	0.02417948052890078,
+	0.02685404941667096,
+	0.0295279624870386,
+	0.03214534135442581,
+	0.03464682117793548,
+	0.0369716985390341,
+	0.039060328279673276,
+	0.040856643282313365,
+	0.04231065439216247,
+	0.043380781642569775,
+	0.044035873841196206,
+	0.04425662519949865,
+	0.044035873841196206,
+	0.043380781642569775,
+	0.04231065439216247,
+	0.040856643282313365,
+	0.039060328279673276,
+	0.0369716985390341,
+	0.03464682117793548,
+	0.03214534135442581,
+	0.0295279624870386,
+	0.02685404941667096,
+	0.02417948052890078,
+	0.02155484948872149,
+	0.019024086115486723,
+	0.016623532195728208,
+	0.014381474814203989,
+	0.012318109844189502
+);
+
+void main()
+{
+	vec4 sum = vec4(0.0);
+
+	for (int i = 0; i < N; ++i)
+	{
+		for (int j = 0; j < N; ++j)
+		{
+			vec2 uv = v_uv + u_texture_size_inv * vec2(float(i - M), float(j - M)); // shift the uv to get the values from the nwighboring pixels
+			sum += coeffs[i] * coeffs[j] * texture(u_input_texture, uv);
+		}
+	}
+
+	FragColor = sum;
 }

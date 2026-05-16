@@ -60,9 +60,12 @@ Renderer::Renderer(const char* shader_atlas_filename)
 	lighting_FBO = new GFX::FBO();
 	lighting_FBO->create(WIDTH, HEIGHT, 1, GL_RGBA, GL_UNSIGNED_BYTE, true); //1 color texture, same config as G-Buffer.
 	
+	//Ambient Occlusion:
 	ssao_FBO = new GFX::FBO();
 	ssao_FBO->create(WIDTH, HEIGHT, 1, GL_RGB, GL_UNSIGNED_BYTE, false); //1 color texture, same config as G-Buffer.
 	ao_sample_points = generateSpherePoints(sample_count, 1.0, hemi); //generate random samples inside sphere of radius 1
+	half_ssao_FBO = new GFX::FBO();
+	half_ssao_FBO->create(WIDTH/2, HEIGHT/2, 1, GL_RGB, GL_UNSIGNED_BYTE, false); // half-resolution ssao
 }
 
 Renderer::~Renderer() {
@@ -75,6 +78,7 @@ Renderer::~Renderer() {
 	if (gbuffer) delete gbuffer;
 	if (lighting_FBO) delete lighting_FBO;
 	if (ssao_FBO) delete ssao_FBO;
+	if (half_ssao_FBO) delete half_ssao_FBO;
 }
 
 void Renderer::setupScene()
@@ -269,11 +273,16 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 		gbuffer->unbind();
 
 	//AMBIENT OCCLUSION:
+		//half_ssao_FBO->bind();
+		//glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT); // Clear textures from prev frame
+		//renderAmbientOcclusion(quad);
+		//half_ssao_FBO->unbind();
 		ssao_FBO->bind();
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT); // Clear textures from prev frame
+		//blurFBO(quad);
 		renderAmbientOcclusion(quad);
 		ssao_FBO->unbind();
-	
+
 	//LIGHT VOLUMES:
 		if (isLightVol) {
 			gbuffer->depth_texture->copyTo(lighting_FBO->depth_texture);
@@ -316,16 +325,16 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 		}
 	}
 	
+	//Only render translucent objects:
 	//glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
 	// At the end, render the translucent objects:
-	if (!isLightVol) {
+	/*if (!isLightVol) {
 		for (sRenderable call : translucent_list) {
 			if (isInsideFrustum(&call, camera) != CLIP_OUTSIDE) renderMeshWithMaterial(call.model, call.mesh, call.material);
 		}
-	}
+	}*/
 
-	//ssao_FBO->color_textures[0]->toViewport();
 }
 
 void Renderer::renderCook(const Matrix44 model, GFX::Mesh* mesh, SCN::Material* material)
@@ -378,16 +387,16 @@ void Renderer::renderCook(const Matrix44 model, GFX::Mesh* mesh, SCN::Material* 
 
 	// Upload shadowmap uniform
 	shader->setUniform("u_shadow_bias", shadow_bias);
-	shader->setUniform("u_shadowmaps[0]", fbos[0]->depth_texture, 2);
-	shader->setUniform("u_shadowmaps[1]", fbos[1]->depth_texture, 3);
+	shader->setUniform("u_shadowmaps[0]", fbos[0]->depth_texture, 3);
+	shader->setUniform("u_shadowmaps[1]", fbos[1]->depth_texture, 4);
 	shader->setMatrix44Array("u_shadow_vps", shadow_vps, MAX_SHADOWS);
 
 	//Passem les components roughness and metalic directament del material de cada element
 	if (material->textures[3].texture) {
-		shader->setTexture("u_MetalicRoughness", material->textures[3].texture, 4);
+		shader->setTexture("u_MetalicRoughness", material->textures[3].texture, 5);
 	}
 	else {
-		shader->setTexture("u_MetalicRoughness", GFX::Texture::getWhiteTexture(), 4);
+		shader->setTexture("u_MetalicRoughness", GFX::Texture::getWhiteTexture(), 5);
 	}
 
 	// Render just the verticies as a wireframe
@@ -426,9 +435,12 @@ void Renderer::renderAmbient(GFX::Mesh* mesh)
 	shader->setUniform("u_inv_viewprojection", camera->inverse_viewprojection_matrix);
 
 //GBuffer:
-	shader->setUniform("u_gbuffer_color", gbuffer->color_textures[0], 0); //after renderGbuffer material->bind has already used 0 and 1
+	shader->setUniform("u_gbuffer_color", gbuffer->color_textures[0], 0);
 	shader->setUniform("u_gbuffer_depth", lighting_FBO->depth_texture, 1);
 	shader->setUniform("u_gbuffer_normal", gbuffer->color_textures[1], 2);
+
+//Ambient Occlusion:
+	shader->setUniform("u_ambient_occlusion", ssao_FBO->color_textures[0], 3);
 
 //Light:
 	shader->setUniform("u_ambient_light", scene->ambient_light);
@@ -445,12 +457,11 @@ void Renderer::renderAmbient(GFX::Mesh* mesh)
 		shader->setUniform("u_light_color", light_color[i]);
 		shader->setUniform("u_light_front", light_front[i]);
 		shader->setUniform("u_shadow_vps", shadow_vps[s]); //shadowmap of the directional light
-		shader->setTexture("u_shadowmaps", fbos[s]->depth_texture, 3); //only need to pass the shadowmap of the spotlight
+		shader->setTexture("u_shadowmaps", fbos[s]->depth_texture, 4); //only need to pass the shadowmap of the spotlight
 	}
 
 //ShadowMaps
 	shader->setUniform("u_shadow_bias", shadow_bias);
-
 
 	// Render just the verticies as a wireframe
 	if (render_wireframe)
@@ -650,10 +661,6 @@ void Renderer::renderPlain(Camera* light_cam, const Matrix44 model, GFX::Mesh* m
 	shader->setUniform("u_model", model);
 	shader->setUniform("u_viewprojection", light_cam->viewprojection_matrix);
 
-	// Render just the verticies as a wireframe
-	if (render_wireframe)
-		glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
-
 	//do the draw call that renders the mesh into the screen
 	mesh->render(GL_TRIANGLES);
 
@@ -704,11 +711,6 @@ void Renderer::renderGBuffer(const Matrix44 model, GFX::Mesh* mesh, SCN::Materia
 	shader->setUniform("u_viewprojection", camera->viewprojection_matrix);
 	shader->setUniform("u_camera_pos", camera->eye);
 	shader->setUniform("u_model", model);
-
-
-	// Render just the verticies as a wireframe
-	if (render_wireframe)
-		glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
 
 	//do the draw call that renders the mesh into the screen
 	mesh->render(GL_TRIANGLES);
@@ -813,8 +815,8 @@ void Renderer::renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN
 
 	// Upload shadowmap uniform
 	shader->setUniform("u_shadow_bias", shadow_bias);
-	shader->setUniform("u_shadowmaps[0]", fbos[0]->depth_texture, 2);
-	shader->setUniform("u_shadowmaps[1]", fbos[1]->depth_texture, 3);
+	shader->setUniform("u_shadowmaps[0]", fbos[0]->depth_texture, 3);
+	shader->setUniform("u_shadowmaps[1]", fbos[1]->depth_texture, 4);
 	shader->setMatrix44Array("u_shadow_vps", shadow_vps, MAX_SHADOWS);
 
 	// Render just the verticies as a wireframe
@@ -1020,6 +1022,41 @@ void Renderer::renderAmbientOcclusion(GFX::Mesh* mesh)
 	shader->setUniform("near", camera->near_plane);
 	shader->setUniform("far", camera->far_plane);
 	shader->setUniform("isBaked", isBaked);
+
+	mesh->render(GL_TRIANGLES);
+
+	shader->disable();
+
+	//set the render state as it was before to avoid problems with future renders
+	glDisable(GL_BLEND);
+	glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+}
+
+void Renderer::blurFBO(GFX::Mesh* mesh)
+{
+	//in case there is nothing to do
+	if (!mesh || !mesh->getNumVertices())
+		return;
+	assert(glGetError() == GL_NO_ERROR);
+
+	//define locals to simplify coding
+	GFX::Shader* shader = NULL;
+	Camera* camera = Camera::current;
+
+	glEnable(GL_DEPTH_TEST);
+
+	//chose a shader
+	shader = GFX::Shader::Get("ambient_occlusion");
+
+	assert(glGetError() == GL_NO_ERROR);
+
+	//no shader? then nothing to render
+	if (!shader)
+		return;
+	shader->enable();
+
+	shader->setUniform("u_input_texture", half_ssao_FBO->color_textures[0], 0);
+	shader->setUniform("u_texture_size_inv", vec2(1.0f / half_ssao_FBO->color_textures[0]->width, 1.0f / half_ssao_FBO->color_textures[0]->height));
 
 	mesh->render(GL_TRIANGLES);
 
