@@ -579,6 +579,7 @@ void main()
 
 #version 330 core
 #include "perturbNormal"
+#include "gamma_functions"
 
 in vec2 v_uv; // to sample textures
 in vec3 v_normal; // normal in 
@@ -598,8 +599,9 @@ layout(location = 2) out vec4 gbuffer_metallic_roughness; // store metallic and 
 
 void main()
 {
-	vec4 color = u_color;
-	color *= texture(u_texture, v_uv);
+	vec4 color = vec4(degamma(u_color.xyz), u_color.a);
+	vec4 albedo_color = texture(u_texture, v_uv);
+	color *= vec4(degamma(albedo_color.xyz), albedo_color.a);
 	if(color.a < u_alpha_cutoff) 
 		discard;
 
@@ -607,7 +609,7 @@ void main()
 	vec3 N = perturbNormal(normalize(v_normal), v_world_position, v_uv, nm_color); // rarnge [-1, 1]
 	N = 0.5 * N + 0.5; // to texture range [0, 1]
 	vec4 normal = vec4(N, 1.0); // if alpha = 0 -> transparent
-	gbuffer_albedo = color;
+	gbuffer_albedo = vec4(gamma(color.rgb), color.a);
 	gbuffer_normal_mat = normal;
 
 	//METALNESS PARAMETER
@@ -680,7 +682,7 @@ void main()
 	vec3 k = degamma(color.rgb); //k = k_a = k_s = k_d
 
 //AMBIENT LIGHT:
-	vec3 phong =degamma(u_ambient_light) * k;
+	vec3 phong = degamma(u_ambient_light) * k;
 
 	// VARIABLES:
 	vec3 diffuse = vec3(0.0);
@@ -1224,11 +1226,17 @@ uniform bool isHemi;
 uniform float near;
 uniform float far;
 uniform bool isBaked;
+uniform bool isAO;
 
 out vec4 FragColor;
 
 void main()
 {
+	if(!isAO) {
+		FragColor = vec4(1.0);
+		return;
+	}
+
 	vec2 uv = v_uv + 0.5 * u_res_inv; //center the uv coords in the middle of the pixel
 	float depth = texture(u_gbuffer_depth, uv).r;	
 

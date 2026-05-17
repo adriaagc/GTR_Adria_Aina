@@ -66,6 +66,8 @@ Renderer::Renderer(const char* shader_atlas_filename)
 	ao_sample_points = generateSpherePoints(sample_count, 1.0, hemi); //generate random samples inside sphere of radius 1
 	half_ssao_FBO = new GFX::FBO();
 	half_ssao_FBO->create(WIDTH/2, HEIGHT/2, 1, GL_RGB, GL_UNSIGNED_BYTE, false); // half-resolution ssao
+
+
 }
 
 Renderer::~Renderer() {
@@ -1022,6 +1024,7 @@ void Renderer::renderAmbientOcclusion(GFX::Mesh* mesh)
 	shader->setUniform("near", camera->near_plane);
 	shader->setUniform("far", camera->far_plane);
 	shader->setUniform("isBaked", isBaked);
+	shader->setUniform("isAO", isAO);
 
 	mesh->render(GL_TRIANGLES);
 
@@ -1083,6 +1086,7 @@ void Renderer::showUI()
 	ImGui::Checkbox("RenderLightSpheres", &render_spheres);
 
 	//Ambient Occlusion:
+	ImGui::Checkbox("AmbientOcclusion", &isAO);
 	ImGui::SliderFloat("aoRadius", &ao_radius, 0.01f, 0.09f);
 	ImGui::SliderInt("numPoints", &sample_count, 15, 30);
 	ImGui::Checkbox("Hemisphere", &hemi);

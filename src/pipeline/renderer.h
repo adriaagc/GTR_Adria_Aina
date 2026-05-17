@@ -95,9 +95,9 @@ namespace SCN {
 		int prev_sample_count = 15;
 		float ao_radius = 0.01;
 		bool hemi = false;
-		//bool prev_hemi = false;
 		bool isBaked = false;
 		std::vector<Vector3f> ao_sample_points;
+		bool isAO = false;
 
 	//Tonemapper
 		float tm_scale = 1.0f;
@@ -105,8 +105,6 @@ namespace SCN {
 		float tm_lumwhite2 = 1.0f;
 		float tm_igamma = 1.0f / 2.2f;
 
-		std::pair<float, float> computeLumStats(GFX::Texture* texture);
-		void renderTonemapper(GFX::Mesh* mesh, GFX:: Texture* texture);
 
 		//updated every frame
 		Renderer(const char* shaders_atlas_filename );
@@ -155,6 +153,8 @@ namespace SCN {
 		void renderAmbientOcclusion(GFX::Mesh* mesh);
 		void blurFBO(GFX::Mesh* mesh);
 
+		std::pair<float, float> computeLumStats(GFX::Texture* texture);
+		void renderTonemapper(GFX::Mesh* mesh, GFX::Texture* texture);
 
 		void showUI();
 		void controlRenderMode();
