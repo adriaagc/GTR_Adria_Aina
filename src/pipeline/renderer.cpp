@@ -50,15 +50,15 @@ Renderer::Renderer(const char* shader_atlas_filename)
 		fbos[i]->setDepthOnly(SHADOW_RES, SHADOW_RES);
 	}
 
-	//Create the G-Buffer
+	//Create the G-Buffer:
 	gbuffer = new GFX::FBO();
 	//int width, int height, int num_textures, int format, int type, bool use_depth_texture
 	//gbuffer->create(WIDTH,HEIGHT, 2, GL_RGBA, GL_UNSIGNED_BYTE, true); //2 textures w/ depth
 	gbuffer->create(WIDTH, HEIGHT, 3, GL_RGBA, GL_UNSIGNED_BYTE, true); //2 textures w/ depth
 
-	//Light Volumes
+	//Light Volumes:
 	lighting_FBO = new GFX::FBO();
-	lighting_FBO->create(WIDTH, HEIGHT, 1, GL_RGBA, GL_UNSIGNED_BYTE, true); //1 color texture, same config as G-Buffer.
+	lighting_FBO->create(WIDTH, HEIGHT, 1, GL_RGBA, GL_FLOAT, true); //1 color texture, same config as G-Buffer.
 	
 	//Ambient Occlusion:
 	ssao_FBO = new GFX::FBO();
@@ -66,8 +66,6 @@ Renderer::Renderer(const char* shader_atlas_filename)
 	ao_sample_points = generateSpherePoints(sample_count, 1.0, hemi); //generate random samples inside sphere of radius 1
 	half_ssao_FBO = new GFX::FBO();
 	half_ssao_FBO->create(WIDTH/2, HEIGHT/2, 1, GL_RGB, GL_UNSIGNED_BYTE, false); // half-resolution ssao
-
-
 }
 
 Renderer::~Renderer() {
@@ -257,9 +255,11 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 //THE RENDERING MODES:
 
 	if (isPhong) {
+		lighting_FBO->bind();
 		for (sRenderable& call : opaque_list) {
 			if (isInsideFrustum(&call, camera) != CLIP_OUTSIDE) renderMeshWithMaterial(call.model, call.mesh, call.material);
 		}
+		lighting_FBO->unbind();
 	}
 
 	else if (isDeferredPhong || isLightVol || isDeferredCook) {
@@ -308,25 +308,33 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 
 			lighting_FBO->unbind(); //reset rendering to the framebuffer.
 
-			lighting_FBO->color_textures[0]->toViewport();
+			//lighting_FBO->color_textures[0]->toViewport();
 
 		}
 	//DEFERRED COOK-TORRANCE:
 		else if (isDeferredCook) {
+			lighting_FBO->bind();
 			renderCookDeferred(quad);
+			lighting_FBO->unbind();
 		}
 	//DEFERRED PHONG:
 		else {
+			lighting_FBO->bind();
 			renderQuadMesh(quad);
+			lighting_FBO->unbind();
 		}
 	}
 
 	else { //if isCook == True
+		lighting_FBO->bind();
 		for (sRenderable call : opaque_list) {
 			if (isInsideFrustum(&call, camera) != CLIP_OUTSIDE) renderCook(call.model, call.mesh, call.material);
 		}
+		lighting_FBO->unbind();
 	}
-	
+
+	computeLumStats();
+	renderTonemapper(quad);
 	//Only render translucent objects:
 	//glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
@@ -1069,6 +1077,55 @@ void Renderer::blurFBO(GFX::Mesh* mesh)
 	glDisable(GL_BLEND);
 	glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 }
+
+std::pair<float, float> Renderer::computeLumStats()
+{
+	std::vector<float> pixels(WIDTH * HEIGHT * 4);
+
+	// bind the HDR lighting texture:
+	lighting_FBO->color_textures[0]->bind();
+	glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_FLOAT, pixels.data());
+
+	float total_lum = 0.0f;
+	float max_lum = 0.0f;
+
+	for (int i = 0; i < WIDTH * HEIGHT; i++) {
+		float r = pixels[i * 4 + 0];
+		float g = pixels[i * 4 + 1];
+		float b = pixels[i * 4 + 2];
+		float lum = 0.2126f * r + 0.7152f * g + 0.0722f * b;
+		total_lum += lum;
+		max_lum = max(max_lum, lum);
+	}
+
+	float average_lum = total_lum / (WIDTH * HEIGHT);
+	return { average_lum, max_lum };
+}
+
+void Renderer::renderTonemapper(GFX::Mesh* mesh)
+{
+	if (!mesh || !mesh->getNumVertices()) return;
+
+	GFX::Shader* shader = GFX::Shader::Get("tonemapper");
+	if (!shader) return;
+
+	//glDisable(GL_DEPTH_TEST); //No necessitem compara profunditats per res
+	glDisable(GL_BLEND); //Si està activat els resultats es barrejaran amb els de la pantalla 
+
+	shader->enable();
+	shader->setUniform("u_texture", lighting_FBO->color_textures[0], 0);
+	shader->setUniform("u_scale", tm_scale);
+	shader->setUniform("u_average_lum", tm_average_lum);
+	shader->setUniform("u_lumwhite2", tm_lumwhite2);
+	shader->setUniform("u_igamma", tm_igamma);
+
+	mesh->render(GL_TRIANGLES);
+	shader->disable();
+
+	glEnable(GL_DEPTH_TEST);
+}
+
+
 
 #ifndef SKIP_IMGUI
 

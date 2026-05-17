@@ -153,8 +153,8 @@ namespace SCN {
 		void renderAmbientOcclusion(GFX::Mesh* mesh);
 		void blurFBO(GFX::Mesh* mesh);
 
-		std::pair<float, float> computeLumStats(GFX::Texture* texture);
-		void renderTonemapper(GFX::Mesh* mesh, GFX::Texture* texture);
+		std::pair<float, float> computeLumStats();
+		void renderTonemapper(GFX::Mesh* mesh);
 
 		void showUI();
 		void controlRenderMode();

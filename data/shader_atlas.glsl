@@ -1389,5 +1389,6 @@ void main()
     rgb = max(rgb, vec3(0.001));
     rgb = pow(rgb, vec3(u_igamma));
 
-    FragColor = vec4(rgb, color.a);
+    // FragColor = vec4(rgb, color.a);
+	FragColor = vec4(1.0, 0.0, 0.0, 1.0);
 }
