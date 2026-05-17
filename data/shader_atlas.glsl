@@ -1369,6 +1369,7 @@ void main()
 in vec2 v_uv;
 
 uniform sampler2D u_texture;
+uniform sampler2D u_depth;
 uniform float u_scale;
 uniform float u_average_lum;
 uniform float u_lumwhite2;
@@ -1378,6 +1379,10 @@ out vec4 FragColor;
 
 void main()
 {
+	float depth = texture(u_depth, v_uv).r;
+	if (depth >= 1.0) {
+		discard;
+	}
     vec4 color = texture2D(u_texture, v_uv);
     vec3 rgb = color.xyz;
 
@@ -1389,6 +1394,6 @@ void main()
     rgb = max(rgb, vec3(0.001));
     rgb = pow(rgb, vec3(u_igamma));
 
-    // FragColor = vec4(rgb, color.a);
-	FragColor = vec4(1.0, 0.0, 0.0, 1.0);
+    FragColor = vec4(rgb, color.a);
+	// FragColor = vec4(1.0, 0.0, 0.0, 1.0);
 }

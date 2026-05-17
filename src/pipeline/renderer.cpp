@@ -215,7 +215,7 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 
 	//render skybox
 	if (skybox_cubemap)
-		renderSkybox(skybox_cubemap);
+		renderSkybox(skybox_cubemap); // to framebuffer
 
 	// we have to sort the objects lists
 	Vector3 cam_pos = camera->eye;
@@ -256,6 +256,7 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 
 	if (isPhong) {
 		lighting_FBO->bind();
+		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 		for (sRenderable& call : opaque_list) {
 			if (isInsideFrustum(&call, camera) != CLIP_OUTSIDE) renderMeshWithMaterial(call.model, call.mesh, call.material);
 		}
@@ -314,12 +315,14 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 	//DEFERRED COOK-TORRANCE:
 		else if (isDeferredCook) {
 			lighting_FBO->bind();
+			glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 			renderCookDeferred(quad);
 			lighting_FBO->unbind();
 		}
 	//DEFERRED PHONG:
 		else {
 			lighting_FBO->bind();
+			glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 			renderQuadMesh(quad);
 			lighting_FBO->unbind();
 		}
@@ -327,6 +330,7 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 
 	else { //if isCook == True
 		lighting_FBO->bind();
+		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 		for (sRenderable call : opaque_list) {
 			if (isInsideFrustum(&call, camera) != CLIP_OUTSIDE) renderCook(call.model, call.mesh, call.material);
 		}
@@ -1078,7 +1082,7 @@ void Renderer::blurFBO(GFX::Mesh* mesh)
 	glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 }
 
-std::pair<float, float> Renderer::computeLumStats()
+void Renderer::computeLumStats()
 {
 	std::vector<float> pixels(WIDTH * HEIGHT * 4);
 
@@ -1099,7 +1103,8 @@ std::pair<float, float> Renderer::computeLumStats()
 	}
 
 	float average_lum = total_lum / (WIDTH * HEIGHT);
-	return { average_lum, max_lum };
+	tm_average_lum = average_lum;
+	tm_lumwhite2 = max_lum;	
 }
 
 void Renderer::renderTonemapper(GFX::Mesh* mesh)
@@ -1110,10 +1115,12 @@ void Renderer::renderTonemapper(GFX::Mesh* mesh)
 	if (!shader) return;
 
 	//glDisable(GL_DEPTH_TEST); //No necessitem compara profunditats per res
+	//glDepthMask(GL_FALSE);
 	glDisable(GL_BLEND); //Si està activat els resultats es barrejaran amb els de la pantalla 
 
 	shader->enable();
 	shader->setUniform("u_texture", lighting_FBO->color_textures[0], 0);
+	shader->setUniform("u_depth", lighting_FBO->depth_texture, 1);
 	shader->setUniform("u_scale", tm_scale);
 	shader->setUniform("u_average_lum", tm_average_lum);
 	shader->setUniform("u_lumwhite2", tm_lumwhite2);
@@ -1123,6 +1130,7 @@ void Renderer::renderTonemapper(GFX::Mesh* mesh)
 	shader->disable();
 
 	glEnable(GL_DEPTH_TEST);
+	glDepthMask(GL_TRUE);
 }
 
 
