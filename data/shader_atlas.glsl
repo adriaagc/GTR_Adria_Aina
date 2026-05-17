@@ -583,7 +583,7 @@ void main()
 #include "gamma_functions"
 
 in vec2 v_uv; // to sample textures
-in vec3 v_normal; // normal in 
+in vec3 v_normal; // normal interpolated
 in vec3 v_world_position;
 
 // Uniforms from mateiral->bind:
@@ -606,8 +606,8 @@ void main()
 	if(color.a < u_alpha_cutoff) 
 		discard;
 
-	vec3 nm_color = normalize((texture(u_normalmap, v_uv).xyz * 2.0) - 1.0); //color sampled from the normalmap converted to a range [-1,1]
-	vec3 N = perturbNormal(normalize(v_normal), v_world_position, v_uv, nm_color); // rarnge [-1, 1]
+	vec3 nm_color = normalize((texture(u_normalmap, v_uv).xyz * 2.0 - 1.0)); //color sampled from the normalmap converted to a range [-1,1]
+	vec3 N = normalize(perturbNormal(normalize(v_normal), v_world_position, v_uv, nm_color)); // rarnge [-1, 1]
 	N = 0.5 * N + 0.5; // to texture range [0, 1]
 	vec4 normal = vec4(N, 1.0); // if alpha = 0 -> transparent
 	gbuffer_albedo = vec4(gamma(color.rgb), color.a);
@@ -660,6 +660,9 @@ uniform sampler2D u_gbuffer_color;
 uniform sampler2D u_gbuffer_normal;
 uniform sampler2D u_gbuffer_depth;
 
+//Ambient Occlusion:
+uniform sampler2D u_ambient_occlusion;
+
 // Color Output:
 out vec4 FragColor;
 
@@ -683,7 +686,8 @@ void main()
 	vec3 k = degamma(color.rgb); //k = k_a = k_s = k_d
 
 //AMBIENT LIGHT:
-	vec3 phong = degamma(u_ambient_light) * k;
+	float ao_term = texture(u_ambient_occlusion, v_uv).r;
+	vec3 phong = degamma(u_ambient_light) * k * ao_term;
 
 	// VARIABLES:
 	vec3 diffuse = vec3(0.0);
@@ -935,6 +939,9 @@ uniform sampler2D u_gbuffer_normal;
 uniform sampler2D u_gbuffer_depth;
 uniform sampler2D u_gbuffer_metallic_roughness;
 
+//Ambient Occlusion:
+uniform sampler2D u_ambient_occlusion;
+
 // Color Output:
 out vec4 FragColor;
 
@@ -967,7 +974,8 @@ void main()
 	float d, attenuation, RV, LD, alpha_max, alpha_min, attenuation_distance, attenuation_angle, shadow;
 
 //AMBIENT LIGHT:
-	vec3 BRDFcolor = degamma(u_ambient_light) * k;
+	float ao_term = texture(u_ambient_occlusion, v_uv).r;
+	vec3 BRDFcolor = degamma(u_ambient_light) * k * ao_term;
 	vec3 outgoing_light = vec3(0.0);
 
 	//CUMULATIVE VARIABLES:
@@ -1101,6 +1109,8 @@ uniform sampler2D u_normalmap;
 //Metalic Texture
 uniform sampler2D u_MetalicRoughness; 
 
+
+
 out vec4 FragColor;
 
 void main() 
@@ -1233,6 +1243,7 @@ out vec4 FragColor;
 
 void main()
 {
+	//White texture if no AO == do nothing
 	if(!isAO) {
 		FragColor = vec4(1.0);
 		return;
@@ -1247,8 +1258,7 @@ void main()
 		return;
 	}
 
-	// vec3 N = normalize(texture(u_gbuffer_normal, uv).xyz);
-	vec3 N = normalize(texture(u_gbuffer_normal, uv).xyz *2.0 -1.0); //les necessito en coordenades de [-1,1] que son 
+	vec3 N = normalize(texture(u_gbuffer_normal, uv).xyz * 2.0 - 1.0); //les necessito en coordenades de [-1,1] que son 
 	N = (u_view_mat * vec4(N, 0.0)).xyz; // we want to rotate a direction so we are not interested in translations -> last coord 0.0.
 	//ara la N en view space. 
 
@@ -1268,7 +1278,7 @@ void main()
 	for (int i = 0; i < u_sample_count; i++) {
 		vec3 view_sample = u_sample_pos[i];
 		if (isHemi) {
-			if (view_sample.z < 0){
+			if (view_sample.z < 0){ // to avoid having to generate again the random points
 				view_sample.z *= -1.0;
 			}
 			view_sample = rotmat * view_sample;
@@ -1278,6 +1288,7 @@ void main()
 
 		vec4 proj_sample = u_proj_mat * vec4(view_sample, 1.0); // the projection matrix is 4x4 (View space to Clip space) [-1,1]
 		proj_sample /= proj_sample.w;
+		proj_sample = clamp(proj_sample, -1.0, 1.0);
 
 		vec2 sample_uv = proj_sample.xy * 0.5 + 0.5; // texture range [0,1]
 		float sample_depth = texture(u_gbuffer_depth, sample_uv).r; // [0,1]

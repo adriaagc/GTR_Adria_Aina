@@ -337,18 +337,17 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 		lighting_FBO->unbind();
 	}
 
-	//computeLumStats();
-	//renderTonemapper(quad);
 	NDTonemapper(quad);
+
 	//Only render translucent objects:
 	//glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
 	// At the end, render the translucent objects:
-	/*if (!isLightVol) {
+	if (!isLightVol) {
 		for (sRenderable call : translucent_list) {
 			if (isInsideFrustum(&call, camera) != CLIP_OUTSIDE) renderMeshWithMaterial(call.model, call.mesh, call.material);
 		}
-	}*/
+	}
 
 }
 
@@ -906,6 +905,9 @@ void Renderer::renderQuadMesh(GFX::Mesh* mesh)
 	shader->setTexture("u_gbuffer_depth", gbuffer->depth_texture, 6);
 	shader->setTexture("u_gbuffer_metallic_roughness", gbuffer->color_textures[2], 7);
 
+	// Ambient Occlusion:
+	shader->setTexture("u_ambient_occlusion", ssao_FBO->color_textures[0], 8);
+
 	// Render just the verticies as a wireframe
 	if (render_wireframe)
 		glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
@@ -975,6 +977,9 @@ void Renderer::renderCookDeferred(GFX::Mesh* mesh)
 	shader->setTexture("u_gbuffer_normal", gbuffer->color_textures[1], 5);
 	shader->setTexture("u_gbuffer_depth", gbuffer->depth_texture, 6);
 	shader->setTexture("u_gbuffer_metallic_roughness", gbuffer->color_textures[2], 7);
+	
+	// Ambient Occlusion:
+	shader->setTexture("u_ambient_occlusion", ssao_FBO->color_textures[0], 8);
 
 	// Render just the verticies as a wireframe
 	if (render_wireframe)
