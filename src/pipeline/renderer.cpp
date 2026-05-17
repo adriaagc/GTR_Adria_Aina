@@ -337,8 +337,9 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 		lighting_FBO->unbind();
 	}
 
-	computeLumStats();
-	renderTonemapper(quad);
+	//computeLumStats();
+	//renderTonemapper(quad);
+	NDTonemapper(quad);
 	//Only render translucent objects:
 	//glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
@@ -1126,6 +1127,28 @@ void Renderer::renderTonemapper(GFX::Mesh* mesh)
 	shader->setUniform("u_lumwhite2", tm_lumwhite2);
 	shader->setUniform("u_igamma", tm_igamma);
 
+	mesh->render(GL_TRIANGLES);
+	shader->disable();
+
+	glEnable(GL_DEPTH_TEST);
+	glDepthMask(GL_TRUE);
+}
+
+void Renderer::NDTonemapper(GFX::Mesh* mesh)
+{
+	if (!mesh || !mesh->getNumVertices()) return;
+
+	GFX::Shader* shader = GFX::Shader::Get("tonemapperND");
+	if (!shader) return;
+
+	//glDisable(GL_DEPTH_TEST); //No necessitem compara profunditats per res
+	//glDepthMask(GL_FALSE);
+	glDisable(GL_BLEND); //Si està activat els resultats es barrejaran amb els de la pantalla 
+
+	shader->enable();
+	shader->setUniform("u_texture", lighting_FBO->color_textures[0], 0);
+	shader->setUniform("u_depth", lighting_FBO->depth_texture, 1);
+	
 	mesh->render(GL_TRIANGLES);
 	shader->disable();
 

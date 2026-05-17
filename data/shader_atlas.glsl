@@ -16,6 +16,7 @@ phong_cook basic.vs phong_cook.fs
 ambient_occlusion quad.vs ambient_occlusion.fs
 blur quad.vs blur.fs
 tonemapper quad.vs tonemapper.fs 
+tonemapperND quad.vs tonemapperND.fs
 
 \gamma_functions
 
@@ -1396,4 +1397,44 @@ void main()
 
     FragColor = vec4(rgb, color.a);
 	// FragColor = vec4(1.0, 0.0, 0.0, 1.0);
+}
+
+\tonemapperND.fs
+
+#version 330 core
+#include "gamma_functions"
+
+in vec2 v_uv;
+
+uniform sampler2D u_texture;
+uniform sampler2D u_depth;
+
+out vec4 FragColor;
+
+const float A = 0.15;
+const float B = 0.50;
+const float C = 0.10;
+const float D = 0.20;
+const float E = 0.02;
+const float F = 0.30;
+const float G = 11.2;
+
+vec3 Uncharted2TonemapPartial(vec3 x) {
+	return ((x*(A*x+C*B)+D*E)/(x*(A*x+B)+D*F))-E/F; 
+}
+
+void main()
+{
+	float depth = texture(u_depth, v_uv).r;
+	// discard if skybox
+	if (depth >= 1.0) {
+		discard;
+	}
+    
+	vec3 color = degamma(texture(u_texture, v_uv).rgb);
+    vec3 tonemapped_color = Uncharted2TonemapPartial(color*2.0);
+	vec3 W = vec3(11.2f);
+	vec3 white_scale = vec3(1.0f) / Uncharted2TonemapPartial(W);
+	
+	FragColor = vec4(gamma(tonemapped_color * white_scale), 1.0);
 }

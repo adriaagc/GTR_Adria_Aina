@@ -155,6 +155,8 @@ namespace SCN {
 
 		void computeLumStats();
 		void renderTonemapper(GFX::Mesh* mesh);
+		void NDTonemapper(GFX::Mesh* mesh);
+
 
 		void showUI();
 		void controlRenderMode();
