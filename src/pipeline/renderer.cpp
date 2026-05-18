@@ -276,14 +276,15 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 		gbuffer->unbind();
 
 	//AMBIENT OCCLUSION:
-		//half_ssao_FBO->bind();
-		//glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT); // Clear textures from prev frame
-		//renderAmbientOcclusion(quad);
-		//half_ssao_FBO->unbind();
+		// low res AO:
+		half_ssao_FBO->bind();
+		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT); // Clear textures from prev frame
+		renderAmbientOcclusion(quad);
+		half_ssao_FBO->unbind();
+		// Full res AO:
 		ssao_FBO->bind();
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT); // Clear textures from prev frame
-		//blurFBO(quad);
-		renderAmbientOcclusion(quad);
+		blurFBO(quad);
 		ssao_FBO->unbind();
 
 	//LIGHT VOLUMES:
@@ -338,6 +339,8 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 	}
 
 	NDTonemapper(quad);
+	//computeLumStats();
+	//renderTonemapper(quad);
 
 	//Only render translucent objects:
 	//glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -1024,7 +1027,7 @@ void Renderer::renderAmbientOcclusion(GFX::Mesh* mesh)
 		ao_sample_points = generateSpherePoints(sample_count, 1.0, hemi); //generate random samples inside sphere of radius 1
 	}
 
-	shader->setUniform("u_res_inv", vec2(1.0f/ssao_FBO->color_textures[0]->width, 1.0f/ssao_FBO->color_textures[0]->height));
+	shader->setUniform("u_res_inv", vec2(1.0f/half_ssao_FBO->color_textures[0]->width, 1.0f/half_ssao_FBO->color_textures[0]->height));
 	shader->setUniform("u_gbuffer_depth", gbuffer->depth_texture, 0);
 	shader->setUniform("u_gbuffer_normal", gbuffer->color_textures[1], 1);
 	shader->setUniform("u_gbuffer_metallic_roughness", gbuffer->color_textures[2], 2);
@@ -1067,7 +1070,7 @@ void Renderer::blurFBO(GFX::Mesh* mesh)
 	glEnable(GL_DEPTH_TEST);
 
 	//chose a shader
-	shader = GFX::Shader::Get("ambient_occlusion");
+	shader = GFX::Shader::Get("blur");
 
 	assert(glGetError() == GL_NO_ERROR);
 
@@ -1077,7 +1080,9 @@ void Renderer::blurFBO(GFX::Mesh* mesh)
 	shader->enable();
 
 	shader->setUniform("u_input_texture", half_ssao_FBO->color_textures[0], 0);
+	//shader->setUniform("u_texture_size_inv", vec2(1.0f / WIDTH, 1.0f / HEIGHT));
 	shader->setUniform("u_texture_size_inv", vec2(1.0f / half_ssao_FBO->color_textures[0]->width, 1.0f / half_ssao_FBO->color_textures[0]->height));
+
 
 	mesh->render(GL_TRIANGLES);
 
@@ -1095,8 +1100,9 @@ void Renderer::computeLumStats()
 	// bind the HDR lighting texture:
 	lighting_FBO->color_textures[0]->bind();
 	glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_FLOAT, pixels.data());
+	glBindTexture(GL_TEXTURE_2D, 0);
 
-	float total_lum = 0.0f;
+	/*float total_lum = 0.0f;
 	float max_lum = 0.0f;
 
 	for (int i = 0; i < WIDTH * HEIGHT; i++) {
@@ -1110,7 +1116,42 @@ void Renderer::computeLumStats()
 
 	float average_lum = total_lum / (WIDTH * HEIGHT);
 	tm_average_lum = average_lum;
-	tm_lumwhite2 = max_lum;	
+	tm_lumwhite2 = max_lum;	*/
+
+	double total_log_lum = 0.0;
+	float max_lum = 0.0f;
+	const float epsilon = 0.0001f; // Avoid log(0)
+
+	for (int i = 0; i < WIDTH * HEIGHT; i++) {
+		float r = pixels[i * 4 + 0];
+		float g = pixels[i * 4 + 1];
+		float b = pixels[i * 4 + 2];
+
+		r = max(0.0f, r);
+		g = max(0.0f, g);
+		b = max(0.0f, b);
+
+		float lum = 0.2126f * r + 0.7152f * g + 0.0722f * b;
+
+		total_log_lum += std::log(lum + epsilon);
+
+		max_lum = max(max_lum, lum);
+	}
+
+	float average_lum = std::exp(total_log_lum / (WIDTH * HEIGHT));
+
+	tm_average_lum = max(0.001f, average_lum);
+
+	float tm_scale = 0.18f;
+
+	float l_white = (tm_scale / tm_average_lum) * max_lum;
+
+	tm_lumwhite2 = l_white * l_white;
+
+	if (tm_lumwhite2 < 0.001f) {
+		tm_lumwhite2 = 11.11f;
+	}
+
 }
 
 void Renderer::renderTonemapper(GFX::Mesh* mesh)
@@ -1153,6 +1194,7 @@ void Renderer::NDTonemapper(GFX::Mesh* mesh)
 	shader->enable();
 	shader->setUniform("u_texture", lighting_FBO->color_textures[0], 0);
 	shader->setUniform("u_depth", lighting_FBO->depth_texture, 1);
+	shader->setUniform("isTonemapper", isTonemapper);
 	
 	mesh->render(GL_TRIANGLES);
 	shader->disable();
@@ -1184,6 +1226,7 @@ void Renderer::showUI()
 	ImGui::SliderInt("numPoints", &sample_count, 15, 30);
 	ImGui::Checkbox("Hemisphere", &hemi);
 	ImGui::Checkbox("BakedAO", &isBaked);
+	ImGui::Checkbox("Tonemapper", &isTonemapper);
 
 	//To make sure that only on render mode is on at a time:
 	controlRenderMode();

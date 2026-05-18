@@ -606,7 +606,7 @@ void main()
 	if(color.a < u_alpha_cutoff) 
 		discard;
 
-	vec3 nm_color = normalize((texture(u_normalmap, v_uv).xyz * 2.0 - 1.0)); //color sampled from the normalmap converted to a range [-1,1]
+	vec3 nm_color = texture(u_normalmap, v_uv).xyz * 2.0 - 1.0; //color sampled from the normalmap converted to a range [-1,1]
 	vec3 N = normalize(perturbNormal(normalize(v_normal), v_world_position, v_uv, nm_color)); // rarnge [-1, 1]
 	N = 0.5 * N + 0.5; // to texture range [0, 1]
 	vec4 normal = vec4(N, 1.0); // if alpha = 0 -> transparent
@@ -1318,44 +1318,18 @@ uniform vec2 u_texture_size_inv;
 out vec4 FragColor;
 
 // 33x33 kernel
-const int M = 16; 		 // half_window = 16
-const int N = 2 * M + 1; // window_size = 33
+const int M = 3; 		 // half_window = 3
+const int N = 2 * M + 1; // window_size = 7
 
 // sigma = 10
 const float coeffs[N] = float[N](
-	0.012318109844189502,
-	0.014381474814203989,
-	0.016623532195728208,
-	0.019024086115486723,
-	0.02155484948872149,
-	0.02417948052890078,
-	0.02685404941667096,
-	0.0295279624870386,
-	0.03214534135442581,
-	0.03464682117793548,
-	0.0369716985390341,
-	0.039060328279673276,
-	0.040856643282313365,
-	0.04231065439216247,
-	0.043380781642569775,
-	0.044035873841196206,
-	0.04425662519949865,
-	0.044035873841196206,
-	0.043380781642569775,
-	0.04231065439216247,
-	0.040856643282313365,
-	0.039060328279673276,
-	0.0369716985390341,
-	0.03464682117793548,
-	0.03214534135442581,
-	0.0295279624870386,
-	0.02685404941667096,
-	0.02417948052890078,
-	0.02155484948872149,
-	0.019024086115486723,
-	0.016623532195728208,
-	0.014381474814203989,
-	0.012318109844189502
+	0.00443184, // i = -3
+    0.05399097, // i = -2
+    0.24197072, // i = -1
+    0.39894228, // i =  0 (Centro)
+    0.24197072, // i =  1
+    0.05399097, // i =  2
+    0.00443184  // i =  3
 );
 
 void main()
@@ -1419,6 +1393,7 @@ in vec2 v_uv;
 
 uniform sampler2D u_texture;
 uniform sampler2D u_depth;
+uniform bool isTonemapper;
 
 out vec4 FragColor;
 
@@ -1443,6 +1418,11 @@ void main()
 	}
     
 	vec3 color = degamma(texture(u_texture, v_uv).rgb);
+	if (!isTonemapper) {
+		FragColor = texture(u_texture, v_uv);
+		return;
+	}
+	// vec3 color = texture(u_texture,v_uv).rgb;
     vec3 tonemapped_color = Uncharted2TonemapPartial(color*2.0);
 	vec3 W = vec3(11.2f);
 	vec3 white_scale = vec3(1.0f) / Uncharted2TonemapPartial(W);

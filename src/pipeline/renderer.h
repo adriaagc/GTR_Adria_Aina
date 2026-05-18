@@ -104,6 +104,7 @@ namespace SCN {
 		float tm_average_lum = 0.5f;
 		float tm_lumwhite2 = 1.0f;
 		float tm_igamma = 1.0f / 2.2f;
+		bool isTonemapper = false;
 
 
 		//updated every frame
