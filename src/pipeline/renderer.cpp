@@ -1282,22 +1282,33 @@ void Renderer::showUI()
 
 	//add here your stuff
 	//...
+	ImGui::TextColored(ImVec4(0.0f, 1.0f, 0.0f, 1.0f), "-------------------");
+	ImGui::TextColored(ImVec4(0.0f, 1.0f, 0.0f, 1.0f), "SHADOWS");
 	ImGui::SliderFloat("Shininess", &shininess, 0.01f, 100.0f);
 	ImGui::SliderFloat("ShadowBias", &shadow_bias, 0.001f, 0.005f);
 	ImGui::Checkbox("ForwardFacingCulling", &ffc);
 	ImGui::Checkbox("RenderLightSpheres", &render_spheres);
 
 	//Ambient Occlusion:
+	ImGui::TextColored(ImVec4(0.0f, 1.0f, 0.0f, 1.0f), "-------------------");
+	ImGui::TextColored(ImVec4(0.0f, 1.0f, 0.0f, 1.0f), "AMBIENT OCCLUSION");
 	ImGui::Checkbox("AmbientOcclusion", &isAO);
 	ImGui::SliderFloat("aoRadius", &ao_radius, 0.01f, 0.09f);
 	ImGui::SliderInt("numPoints", &sample_count, 15, 30);
 	ImGui::Checkbox("Hemisphere", &hemi);
 	ImGui::Checkbox("BakedAO", &isBaked);
+
+	ImGui::TextColored(ImVec4(0.0f, 1.0f, 0.0f, 1.0f), "-------------------");
+
+	ImGui::TextColored(ImVec4(0.0f, 1.0f, 0.0f, 1.0f), "POST PROCESSING FX");
 	ImGui::Checkbox("Tonemapper", &isTonemapper);
+	ImGui::SliderInt("Samples blurVec", &nSamples,2,10);
 
 	//To make sure that only on render mode is on at a time:
 	controlRenderMode();
+	ImGui::TextColored(ImVec4(0.0f, 1.0f, 0.0f, 1.0f), "-------------------");
 
+	ImGui::TextColored(ImVec4(0.0f, 1.0f, 0.0f, 1.0f), "RENDERING MODES");
 	ImGui::Checkbox("Phong", &isPhong);
 	ImGui::Checkbox("DeferredPhong", &isDeferredPhong);
 	ImGui::Checkbox("LightVolumes", &isLightVol);

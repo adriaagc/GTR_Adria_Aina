@@ -545,7 +545,7 @@ void main()
 	}
 
 	phong += k*(diffuse + specular);
-	FragColor = vec4(gamma(phong), color.a);
+	FragColor = vec4(phong, color.a);
 }
 
 
@@ -613,7 +613,7 @@ void main()
 	vec3 N = normalize(perturbNormal(normalize(v_normal), v_world_position, v_uv, nm_color)); // rarnge [-1, 1]
 	N = 0.5 * N + 0.5; // to texture range [0, 1]
 	vec4 normal = vec4(N, 1.0); // if alpha = 0 -> transparent
-	gbuffer_albedo = vec4(gamma(color.rgb), color.a);
+	gbuffer_albedo = vec4(color.rgb, color.a); //save color in linear space. 
 	gbuffer_normal_mat = normal;
 
 	//METALNESS PARAMETER
@@ -685,8 +685,8 @@ void main()
 	vec3 N = normalize(normal);
 
 // Fragment's initial color -> without lighting
-	vec4 color = texture(u_gbuffer_color, v_uv);
-	vec3 k = degamma(color.rgb); //k = k_a = k_s = k_d
+	vec4 color = texture(u_gbuffer_color, v_uv); //Already in linear space. 
+	vec3 k = color.rgb; //k = k_a = k_s = k_d
 
 //AMBIENT LIGHT:
 	float ao_term = texture(u_ambient_occlusion, v_uv).r;
@@ -724,7 +724,7 @@ void main()
 		specular += res.s;
 	}
 	phong += k*(diffuse + specular);
-	FragColor = vec4(gamma(phong), color.a);
+	FragColor = vec4(phong, color.a);
 }
 
 //-------------------------------------------------------------------------//
@@ -774,7 +774,7 @@ void main()
 	float depth = texture(u_gbuffer_depth, v_uv).r; // texture range [0,1] stored in first channel
 	if (depth >= 1.0) discard; // If the depth is so large then it belongs to the background or skybox!
 	vec4 color = texture(u_gbuffer_color, v_uv); //no need for alpha cutoff already done when filling the gbuffer
-	vec3 k = degamma(color.rgb);
+	vec3 k = color.rgb;//already in linear space
 
 // Compute fragment world position: 
 	float depth_clip = 2.0 * depth - 1.0; // clip space range [-1, 1]
@@ -799,7 +799,7 @@ void main()
 
 //AMBIENT + DIRECTIONAL W/ SHADOWS:
 	vec3 phong = k*(ao_light + res.d + res.s);
-	FragColor = vec4(gamma(phong), color.a);
+	FragColor = vec4(phong, color.a);
 }
 
 //-------------------------------------------------------------------------//
@@ -865,8 +865,8 @@ void main()
 	vec3 N = normalize(normal);
 
 // Fragment's initial color -> without lighting
-	vec4 color = texture(u_gbuffer_color, screen_size_uv);
-	vec3 k = degamma(color.rgb); //k = k_a = k_s = k_d
+	vec4 color = texture(u_gbuffer_color, screen_size_uv); //already in linear space. 
+	vec3 k = color.rgb; //k = k_a = k_s = k_d
 	
 // Define some variables:
 	diffuseSpecular res;
@@ -886,7 +886,7 @@ void main()
 	
 	phong = k*(res.d + res.s);
 
-	FragColor = vec4(gamma(phong), color.a);
+	FragColor = vec4(phong, color.a);
 }
 
 
@@ -970,7 +970,7 @@ void main()
 
 // Fragment's initial color -> without lighting
 	vec4 color = texture(u_gbuffer_color, v_uv);
-	vec3 k = degamma(color.rgb); //k = k_a = k_s = k_d
+	vec3 k = color.rgb; //k = k_a = k_s = k_d
 
 // Define some variables:
  	vec3 L_vec, L, light_intensity, diffuse_contrib, R, V, specular_contrib, D;
@@ -1015,8 +1015,7 @@ void main()
 			s += 1;
 
 		//Li(p,L)
-			L_vec = u_light_pos[i] - world_pos;
-			L = normalize(L_vec);
+			L = normalize(u_light_front[i]);
 			V = normalize(u_camera_pos - world_pos);
 
 			float LN = clamp(dot(L,N), 0.0, 1.0);
@@ -1056,12 +1055,12 @@ void main()
 		BRDFcolor += outgoing_light;
 	}
 
-	FragColor = vec4(gamma(BRDFcolor), color.a);
+	FragColor = vec4(BRDFcolor, color.a);
 }
 
 
 //-------------------------------------------------------------------------//
-//				 COOK-TORRANCE BRDF MODEL phong RENDERING				   //
+//				 COOK-TORRANCE BRDF MODEL SINGLE PASS RENDERING			   //
 //-------------------------------------------------------------------------//
 
 \phong_cook.fs
@@ -1214,7 +1213,7 @@ void main()
 		}
 	}
 
-	FragColor = vec4(gamma(BRDFcolor), color.a);
+	FragColor = vec4(BRDFcolor, color.a);
 	// FragColor = vec4(metallic, roughness, 0.0, 1.0); //Em surt groc per tant llegeixo sermpre textures blanques. 
 }
 
@@ -1436,6 +1435,9 @@ void main()
 \render_screen.fs
 
 #version 330 core
+
+#include "gamma_functions"
+
 in vec2 v_uv;
 uniform sampler2D u_texture;
 uniform sampler2D u_depth;
@@ -1450,13 +1452,15 @@ void main()
 		discard;
 	}
 
-	FragColor = texture( u_texture, v_uv);
+	FragColor = vec4(gamma(texture(u_texture, v_uv).xyz),1.0);
 	// FragColor = vec4(1.0, 0.0, 0.0, 1.0);
 }
 
 \motion_blur.fs
 
 #version 330 core
+
+#include "gamma_functions"
 
 in vec2 v_uv;
 
@@ -1493,13 +1497,13 @@ void main(){
    vec4 result = texture(u_texture, v_uv);
    for (int i = 1; i < nSamples; ++i) {
    // get offset in range [-0.5, 0.5]:
-      vec2 offset = blur_vector * (float(i) / float(nSamples - 1) - 0.5);
+      vec2 offset = blurScale * blur_vector * (float(i) / float(nSamples - 1) - 0.5);
   
    // sample & add to result:
       result += texture(u_texture, v_uv + offset);
    }
  
    result /= float(nSamples);
-   FragColor = result;
+   FragColor = vec4(gamma(result.xyz),result.a);
 
 }
