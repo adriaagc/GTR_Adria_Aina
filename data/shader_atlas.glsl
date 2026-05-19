@@ -17,6 +17,9 @@ ambient_occlusion quad.vs ambient_occlusion.fs
 blur quad.vs blur.fs
 tonemapper quad.vs tonemapper.fs 
 tonemapperND quad.vs tonemapperND.fs
+render_screen quad.vs render_screen.fs
+motion_blur quad.vs motion_blur.fs
+
 
 \gamma_functions
 
@@ -1428,4 +1431,75 @@ void main()
 	vec3 white_scale = vec3(1.0f) / Uncharted2TonemapPartial(W);
 	
 	FragColor = vec4(gamma(tonemapped_color * white_scale), 1.0);
+}
+
+\render_screen.fs
+
+#version 330 core
+in vec2 v_uv;
+uniform sampler2D u_texture;
+uniform sampler2D u_depth;
+
+out vec4 FragColor;
+
+void main()
+{
+	float depth = texture(u_depth, v_uv).r;
+	// discard if skybox
+	if (depth >= 1.0) {
+		discard;
+	}
+
+	FragColor = texture( u_texture, v_uv);
+	// FragColor = vec4(1.0, 0.0, 0.0, 1.0);
+}
+
+\motion_blur.fs
+
+#version 330 core
+
+in vec2 v_uv;
+
+uniform mat4 u_inv_viewprojection; // inverse model->view
+uniform mat4 u_prev_viewprojection; // previous model->view->projection
+uniform mat4 u_currentToPrevMat;
+uniform sampler2D u_texture;
+uniform sampler2D u_depth;
+uniform int currentFps;
+uniform int nSamples;
+
+out vec4 FragColor;
+
+void main(){
+	float depth = texture(u_depth, v_uv).r;
+	if (depth >= 1.0) {
+		discard;
+	}
+	float depth_clip = 2.0 * depth - 1.0; // clip space range [-1, 1]
+	vec2 uv_clip = 2.0 * v_uv - 1.0;
+
+	//get previous screen space position
+	vec4 clip_coords = vec4(uv_clip.x, uv_clip.y, depth_clip, 1.0);
+	vec4 not_norm_screen_prev_pos = u_currentToPrevMat * clip_coords; // from clip space to world space in homogeneous coord's
+	vec3 previous = not_norm_screen_prev_pos.xyz / not_norm_screen_prev_pos.w; // convert to cartesian coord's
+ 
+	previous = previous * 0.5 + 0.5; // to [0,1], texture coordinates
+
+	vec2 blur_vector = previous.xy - v_uv; 
+
+	float blurScale = currentFps / 60.0;;
+
+	// perform blur:
+   vec4 result = texture(u_texture, v_uv);
+   for (int i = 1; i < nSamples; ++i) {
+   // get offset in range [-0.5, 0.5]:
+      vec2 offset = blur_vector * (float(i) / float(nSamples - 1) - 0.5);
+  
+   // sample & add to result:
+      result += texture(u_texture, v_uv + offset);
+   }
+ 
+   result /= float(nSamples);
+   FragColor = result;
+
 }

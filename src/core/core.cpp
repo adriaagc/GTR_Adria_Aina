@@ -270,6 +270,8 @@ void CORE::mainLoop(CORE::Window* window, BaseApplication* app)
 			frames_this_second = 0;
 		}
 
+
+
 		//update app logic
 		app->update(elapsed_time);
 

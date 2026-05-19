@@ -3,6 +3,8 @@
 #include "prefab.h"
 
 #include "light.h"
+//motion blur
+#include "../core/core.h"
 
 #define MAX_LIGHTS 4
 #define SHADOW_RES 1024 //square
@@ -87,6 +89,8 @@ namespace SCN {
 
 	//Light Volumes:
 		GFX::FBO* lighting_FBO;
+		GFX::FBO* mapper_FBO;
+
 
 	//Ambient Occlusion:
 		GFX::FBO* ssao_FBO;
@@ -106,6 +110,10 @@ namespace SCN {
 		float tm_igamma = 1.0f / 2.2f;
 		bool isTonemapper = false;
 
+	//Motion Blur
+		Camera prev_camera;
+		CORE::BaseApplication* app = CORE::BaseApplication::instance;
+		int nSamples = 7;
 
 		//updated every frame
 		Renderer(const char* shaders_atlas_filename );
@@ -158,6 +166,8 @@ namespace SCN {
 		void renderTonemapper(GFX::Mesh* mesh);
 		void NDTonemapper(GFX::Mesh* mesh);
 
+		void finallRender(GFX::Mesh* mesh, GFX::FBO* texture);
+		void applyMotonBlur(GFX::Mesh* mesh);
 
 		void showUI();
 		void controlRenderMode();

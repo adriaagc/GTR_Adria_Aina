@@ -1,4 +1,4 @@
-#include "renderer.h"
+﻿#include "renderer.h"
 
 #include <algorithm> //sort
 
@@ -15,7 +15,9 @@
 #include "../extra/hdre.h"
 #include "../core/ui.h"
 
+
 #include "scene.h"
+
 
 
 using namespace SCN;
@@ -59,13 +61,17 @@ Renderer::Renderer(const char* shader_atlas_filename)
 	//Light Volumes:
 	lighting_FBO = new GFX::FBO();
 	lighting_FBO->create(WIDTH, HEIGHT, 1, GL_RGBA, GL_FLOAT, true); //1 color texture, same config as G-Buffer.
-	
+
+	mapper_FBO = new GFX::FBO();
+	mapper_FBO->create(WIDTH, HEIGHT, 1, GL_RGBA, GL_FLOAT, true);
+
 	//Ambient Occlusion:
 	ssao_FBO = new GFX::FBO();
 	ssao_FBO->create(WIDTH, HEIGHT, 1, GL_RGB, GL_UNSIGNED_BYTE, false); //1 color texture, same config as G-Buffer.
 	ao_sample_points = generateSpherePoints(sample_count, 1.0, hemi); //generate random samples inside sphere of radius 1
 	half_ssao_FBO = new GFX::FBO();
 	half_ssao_FBO->create(WIDTH/2, HEIGHT/2, 1, GL_RGB, GL_UNSIGNED_BYTE, false); // half-resolution ssao
+
 }
 
 Renderer::~Renderer() {
@@ -79,6 +85,7 @@ Renderer::~Renderer() {
 	if (lighting_FBO) delete lighting_FBO;
 	if (ssao_FBO) delete ssao_FBO;
 	if (half_ssao_FBO) delete half_ssao_FBO;
+	if (mapper_FBO) delete mapper_FBO;
 }
 
 void Renderer::setupScene()
@@ -338,7 +345,18 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 		lighting_FBO->unbind();
 	}
 
+	mapper_FBO->bind();
+	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT); // ← afegeix això
 	NDTonemapper(quad);
+	mapper_FBO->unbind();
+
+	//mapper_FBO->color_textures[0]->toViewport();
+	applyMotonBlur(quad);
+
+
+	//glBindFramebuffer(GL_FRAMEBUFFER, 0); // pantalla
+	//finallRender(quad, mapper_FBO);
+
 	//computeLumStats();
 	//renderTonemapper(quad);
 
@@ -352,6 +370,7 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 		}
 	}
 
+	prev_camera = *camera;
 }
 
 void Renderer::renderCook(const Matrix44 model, GFX::Mesh* mesh, SCN::Material* material)
@@ -1163,7 +1182,7 @@ void Renderer::renderTonemapper(GFX::Mesh* mesh)
 
 	//glDisable(GL_DEPTH_TEST); //No necessitem compara profunditats per res
 	//glDepthMask(GL_FALSE);
-	glDisable(GL_BLEND); //Si est� activat els resultats es barrejaran amb els de la pantalla 
+	glDisable(GL_BLEND); //Si està activat els resultats es barrejaran amb els de la pantalla 
 
 	shader->enable();
 	shader->setUniform("u_texture", lighting_FBO->color_textures[0], 0);
@@ -1182,14 +1201,14 @@ void Renderer::renderTonemapper(GFX::Mesh* mesh)
 
 void Renderer::NDTonemapper(GFX::Mesh* mesh)
 {
-	if (!mesh || !mesh->getNumVertices()) return;
+	if (!mesh || !mesh->getNumVertices()) return; 
 
 	GFX::Shader* shader = GFX::Shader::Get("tonemapperND");
 	if (!shader) return;
 
 	//glDisable(GL_DEPTH_TEST); //No necessitem compara profunditats per res
 	//glDepthMask(GL_FALSE);
-	glDisable(GL_BLEND); //Si est� activat els resultats es barrejaran amb els de la pantalla 
+	glDisable(GL_BLEND); //Si està activat els resultats es barrejaran amb els de la pantalla 
 
 	shader->enable();
 	shader->setUniform("u_texture", lighting_FBO->color_textures[0], 0);
@@ -1203,7 +1222,55 @@ void Renderer::NDTonemapper(GFX::Mesh* mesh)
 	glDepthMask(GL_TRUE);
 }
 
+void Renderer::finallRender(GFX::Mesh* mesh, GFX::FBO* texture) {
+	if (!mesh || !mesh->getNumVertices()) return;
 
+	GFX::Shader* shader = GFX::Shader::Get("render_screen");
+	if (!shader) return;
+
+	glDisable(GL_BLEND);
+
+	shader->enable();
+
+	shader->setUniform("u_texture", texture->color_textures[0], 0);
+	shader->setUniform("u_depth", lighting_FBO->depth_texture, 1);
+
+	mesh->render(GL_TRIANGLES);
+	shader->disable();
+
+	glEnable(GL_DEPTH_TEST);
+	glDepthMask(GL_TRUE);
+}
+
+void Renderer::applyMotonBlur(GFX::Mesh* mesh) {
+	GFX::Shader* shader = GFX::Shader::Get("motion_blur");
+	if (!shader) return;
+
+	glDisable(GL_BLEND);
+
+	Camera* camera = Camera::current;
+
+	shader->enable(); 
+
+	shader->setUniform("u_texture", mapper_FBO->color_textures[0], 0);
+	shader->setUniform("u_depth", mapper_FBO->depth_texture, 1);
+
+	shader->setUniform("currentFps",app->fps);
+
+	/*shader->setUniform("u_inv_viewprojection", camera->inverse_viewprojection_matrix);
+	shader->setUniform("u_prev_viewprojection", prev_camera.viewprojection_matrix);*/
+	Matrix44 currentToPrev = prev_camera.viewprojection_matrix * camera->inverse_viewprojection_matrix;
+
+	shader->setUniform("u_currentToPrevMat", currentToPrev);
+
+	shader->setUniform("nSamples", nSamples);
+
+	mesh->render(GL_TRIANGLES);
+	shader->disable();
+
+	glEnable(GL_DEPTH_TEST);
+	glDepthMask(GL_TRUE);
+}
 
 #ifndef SKIP_IMGUI
 
