@@ -1486,24 +1486,32 @@ void main(){
 	vec4 clip_coords = vec4(uv_clip.x, uv_clip.y, depth_clip, 1.0);
 	vec4 not_norm_screen_prev_pos = u_currentToPrevMat * clip_coords; // from clip space to world space in homogeneous coord's
 	vec3 previous = not_norm_screen_prev_pos.xyz / not_norm_screen_prev_pos.w; // convert to cartesian coord's
- 
+
 	previous = previous * 0.5 + 0.5; // to [0,1], texture coordinates
 
-	vec2 blur_vector = previous.xy - v_uv; 
+	vec2 blur_vector = previous.xy - v_uv; // range [-1, 1]
 
-	float blurScale = currentFps / 60.0;;
+	vec2 normal = normalize(blur_vector);
+	// Map values to be between 0 and 1.
+	normal.x = (normal.x + 1) * 0.5;
+	normal.y = (normal.y + 1) * 0.5;
+	// Convert to array of color values.
+	FragColor = vec4(normal.x, normal.y, 0.0, 1.0);
+	return;
+
+	float blurScale = currentFps / 60.0;
 
 	// perform blur:
-   vec4 result = texture(u_texture, v_uv);
-   for (int i = 1; i < nSamples; ++i) {
-   // get offset in range [-0.5, 0.5]:
-      vec2 offset = blurScale * blur_vector * (float(i) / float(nSamples - 1) - 0.5);
+	vec4 result = texture(u_texture, v_uv);
+	for (int i = 1; i < nSamples; ++i) {
+	// get offset in range [-0.5, 0.5]:
+    	vec2 offset = blurScale * blur_vector * (float(i) / float(nSamples - 1) - 0.5);
   
-   // sample & add to result:
-      result += texture(u_texture, v_uv + offset);
-   }
+	// sample & add to result:
+    	result += texture(u_texture, v_uv + offset);
+   	}
  
-   result /= float(nSamples);
-   FragColor = vec4(gamma(result.xyz),result.a);
+	result /= float(nSamples);
+	FragColor = vec4(gamma(result.xyz),result.a);
 
 }
