@@ -55,8 +55,8 @@ Renderer::Renderer(const char* shader_atlas_filename)
 	//Create the G-Buffer:
 	gbuffer = new GFX::FBO();
 	//int width, int height, int num_textures, int format, int type, bool use_depth_texture
-	//gbuffer->create(WIDTH,HEIGHT, 2, GL_RGBA, GL_UNSIGNED_BYTE, true); //2 textures w/ depth
-	gbuffer->create(WIDTH, HEIGHT, 3, GL_RGBA, GL_UNSIGNED_BYTE, true); //2 textures w/ depth
+	gbuffer->create(WIDTH, HEIGHT, 4, GL_RGBA, GL_UNSIGNED_BYTE, true); //4 textures w/ depth
+	//albedo - normals - metallicRoughness - velocity
 
 	//Light Volumes:
 	lighting_FBO = new GFX::FBO();
@@ -273,8 +273,8 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 	else if (isDeferredPhong || isLightVol || isDeferredCook) {
 	//G-BUFFER:
 		gbuffer->bind();
-		GLenum buffers[] = { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2 };// As we are storing more than one texture
-		glDrawBuffers(3, buffers);
+		GLenum buffers[] = { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2, GL_COLOR_ATTACHMENT3 };// As we are storing more than one texture
+		glDrawBuffers(4, buffers);
 
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT); // Clear textures from prev frame
 		for (sRenderable& call : opaque_list) {
@@ -346,24 +346,16 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 	}
 
 	mapper_FBO->bind();
-	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT); // ← afegeix això
-	NDTonemapper(quad);
+	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+	applyMotonBlur(quad);
 	mapper_FBO->unbind();
 
-	//mapper_FBO->color_textures[0]->toViewport();
-	applyMotonBlur(quad);
-
-
-	//glBindFramebuffer(GL_FRAMEBUFFER, 0); // pantalla
-	//finallRender(quad, mapper_FBO);
-
-	//computeLumStats();
-	//renderTonemapper(quad);
+	NDTonemapper(quad);
 
 	//Only render translucent objects:
 	//glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-	// At the end, render the translucent objects:
+	//At the end, render the translucent objects:
 	if (!isLightVol) {
 		for (sRenderable call : translucent_list) {
 			if (isInsideFrustum(&call, camera) != CLIP_OUTSIDE) renderMeshWithMaterial(call.model, call.mesh, call.material);
@@ -739,14 +731,15 @@ void Renderer::renderGBuffer(const Matrix44 model, GFX::Mesh* mesh, SCN::Materia
 
 	material->bind(shader);
 
-//For the basic.vs
-	//upload uniforms
+	//For the basic.vs
 	shader->setUniform("u_model", model);
+	shader->setUniform("u_prev_viewprojection", prev_camera.viewprojection_matrix); // needed for per-object motion blur
 
 	// Upload camera uniforms
 	shader->setUniform("u_viewprojection", camera->viewprojection_matrix);
 	shader->setUniform("u_camera_pos", camera->eye);
 	shader->setUniform("u_model", model);
+	
 
 	//do the draw call that renders the mesh into the screen
 	mesh->render(GL_TRIANGLES);
@@ -1211,8 +1204,8 @@ void Renderer::NDTonemapper(GFX::Mesh* mesh)
 	glDisable(GL_BLEND); //Si està activat els resultats es barrejaran amb els de la pantalla 
 
 	shader->enable();
-	shader->setUniform("u_texture", lighting_FBO->color_textures[0], 0);
-	shader->setUniform("u_depth", lighting_FBO->depth_texture, 1);
+	shader->setUniform("u_texture", mapper_FBO->color_textures[0], 0);
+	shader->setUniform("u_depth", mapper_FBO->depth_texture, 1);
 	shader->setUniform("isTonemapper", isTonemapper);
 	
 	mesh->render(GL_TRIANGLES);
@@ -1222,50 +1215,66 @@ void Renderer::NDTonemapper(GFX::Mesh* mesh)
 	glDepthMask(GL_TRUE);
 }
 
-void Renderer::finallRender(GFX::Mesh* mesh, GFX::FBO* texture) {
-	if (!mesh || !mesh->getNumVertices()) return;
+void Renderer::finalRender(GFX::Mesh* mesh) {
+	//in case there is nothing to do
+	if (!mesh || !mesh->getNumVertices() )
+		return;
+	assert(glGetError() == GL_NO_ERROR);
 
-	GFX::Shader* shader = GFX::Shader::Get("render_screen");
-	if (!shader) return;
-
-	glDisable(GL_BLEND);
-
-	shader->enable();
-
-	shader->setUniform("u_texture", texture->color_textures[0], 0);
-	shader->setUniform("u_depth", lighting_FBO->depth_texture, 1);
-
-	mesh->render(GL_TRIANGLES);
-	shader->disable();
+	//define locals to simplify coding
+	GFX::Shader* shader = NULL;
 
 	glEnable(GL_DEPTH_TEST);
-	glDepthMask(GL_TRUE);
+
+	//chose a shader
+	shader = GFX::Shader::Get("render_screen");
+
+	assert(glGetError() == GL_NO_ERROR);
+
+	//no shader? then nothing to render
+	if (!shader)
+		return;
+	shader->enable();
+
+	shader->setUniform("u_texture", gbuffer->color_textures[0], 0);
+	shader->setUniform("u_texture", gbuffer->depth_texture, 1);
+
+	//do the draw call that renders the mesh into the screen
+	mesh->render(GL_TRIANGLES);
+
+	//disable shader
+	shader->disable();
+
+	//set the render state as it was before to avoid problems with future renders
+	glDisable(GL_BLEND);
+	glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 }
 
 void Renderer::applyMotonBlur(GFX::Mesh* mesh) {
-	GFX::Shader* shader = GFX::Shader::Get("motion_blur");
+
+	GFX::Shader* shader;
+	if (isCameraBlur) shader = GFX::Shader::Get("camera_motion_blur");
+	else shader = GFX::Shader::Get("object_motion_blur");
+	
 	if (!shader) return;
 
 	glDisable(GL_BLEND);
 
 	Camera* camera = Camera::current;
+	Matrix44 currentToPrev = prev_camera.viewprojection_matrix * camera->inverse_viewprojection_matrix;
 
 	shader->enable(); 
 
-	shader->setUniform("u_texture", mapper_FBO->color_textures[0], 0);
-	shader->setUniform("u_depth", mapper_FBO->depth_texture, 1);
-
+	shader->setUniform("u_texture", lighting_FBO->color_textures[0], 0);
+	shader->setUniform("u_velocity", gbuffer->color_textures[3], 1);
+	shader->setUniform("u_depth", lighting_FBO->depth_texture, 2);
 	shader->setUniform("currentFps",app->fps);
-
-	/*shader->setUniform("u_inv_viewprojection", camera->inverse_viewprojection_matrix);
-	shader->setUniform("u_prev_viewprojection", prev_camera.viewprojection_matrix);*/
-	Matrix44 currentToPrev = prev_camera.viewprojection_matrix * camera->inverse_viewprojection_matrix;
-
 	shader->setUniform("u_currentToPrevMat", currentToPrev);
-
 	shader->setUniform("nSamples", nSamples);
+	//shader->setUniform("u_res_inv", vec2(1.0f / lighting_FBO->color_textures[0]->width, 1.0f / lighting_FBO->color_textures[0]->height));
 
 	mesh->render(GL_TRIANGLES);
+
 	shader->disable();
 
 	glEnable(GL_DEPTH_TEST);
@@ -1302,6 +1311,7 @@ void Renderer::showUI()
 
 	ImGui::TextColored(ImVec4(0.0f, 1.0f, 0.0f, 1.0f), "POST PROCESSING FX");
 	ImGui::Checkbox("Tonemapper", &isTonemapper);
+	ImGui::Checkbox("Camera Blur", &isCameraBlur);
 	ImGui::SliderInt("Samples blurVec", &nSamples,2,10);
 
 	//To make sure that only on render mode is on at a time:

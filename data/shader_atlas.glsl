@@ -18,7 +18,8 @@ blur quad.vs blur.fs
 tonemapper quad.vs tonemapper.fs 
 tonemapperND quad.vs tonemapperND.fs
 render_screen quad.vs render_screen.fs
-motion_blur quad.vs motion_blur.fs
+camera_motion_blur quad.vs camera_motion_blur.fs
+object_motion_blur quad.vs object_motion_blur.fs
 
 
 \gamma_functions
@@ -242,6 +243,7 @@ uniform vec3 u_camera_pos;
 
 uniform mat4 u_model;
 uniform mat4 u_viewprojection;
+uniform mat4 u_prev_viewprojection;
 
 //this will store the color for the pixel shader
 out vec3 v_position;
@@ -249,6 +251,8 @@ out vec3 v_world_position;
 out vec3 v_normal;
 out vec2 v_uv;
 out vec4 v_color;
+out vec4 v_current_position;
+out vec4 v_prev_position;
 
 uniform float u_time;
 
@@ -267,8 +271,12 @@ void main()
 	//store the texture coordinates
 	v_uv = a_coord;
 
+	//calcule the vertex in objet space at the previous frame
+	v_prev_position = u_prev_viewprojection * vec4(v_world_position, 1.0);
+	v_current_position = u_viewprojection * vec4(v_world_position, 1.0);
+
 	//calcule the position of the vertex using the matrices
-	gl_Position = u_viewprojection * vec4( v_world_position, 1.0 );
+	gl_Position = v_current_position;
 }
 
 \quad.vs
@@ -588,6 +596,8 @@ void main()
 in vec2 v_uv; // to sample textures
 in vec3 v_normal; // normal interpolated
 in vec3 v_world_position;
+in vec4 v_current_position;
+in vec4 v_prev_position;
 
 // Uniforms from mateiral->bind:
 uniform sampler2D u_texture; // color texture
@@ -600,6 +610,7 @@ uniform vec4 u_color;
 layout(location = 0) out vec4 gbuffer_albedo; // store color info here
 layout(location = 1) out vec4 gbuffer_normal_mat; // store normal info here
 layout(location = 2) out vec4 gbuffer_metallic_roughness; // store metallic and roughness info here
+layout(location = 3) out vec4 gbuffer_velocity; // store velocity buffer
 
 void main()
 {
@@ -619,6 +630,11 @@ void main()
 	//METALNESS PARAMETER
 	vec4 metallic_roughness = texture(u_MetalicRoughness, v_uv);
 	gbuffer_metallic_roughness = metallic_roughness;
+
+	//VELOCITY BUFFER
+	vec2 a = (v_current_position.xy / v_current_position.w) * 0.5 + 0.5;
+	vec2 b = (v_prev_position.xy / v_prev_position.w) * 0.5 + 0.5;
+	gbuffer_velocity = vec4(a - b, 0.0, 1.0); 
 }
 
 //-------------------------------------------------------------------------//
@@ -1419,9 +1435,10 @@ void main()
 		discard;
 	}
     
-	vec3 color = degamma(texture(u_texture, v_uv).rgb);
+	vec3 color = texture(u_texture, v_uv).rgb; // already sotored in linear
 	if (!isTonemapper) {
-		FragColor = texture(u_texture, v_uv);
+		vec4 out_color = texture(u_texture, v_uv);
+		FragColor = vec4(gamma(out_color.xyz), out_color.a);
 		return;
 	}
 	// vec3 color = texture(u_texture,v_uv).rgb;
@@ -1435,13 +1452,11 @@ void main()
 \render_screen.fs
 
 #version 330 core
-
 #include "gamma_functions"
 
 in vec2 v_uv;
 uniform sampler2D u_texture;
 uniform sampler2D u_depth;
-
 out vec4 FragColor;
 
 void main()
@@ -1452,11 +1467,10 @@ void main()
 		discard;
 	}
 
-	FragColor = vec4(gamma(texture(u_texture, v_uv).xyz),1.0);
-	// FragColor = vec4(1.0, 0.0, 0.0, 1.0);
+	FragColor = vec4(gamma(texture(u_texture, v_uv).xyz), 1.0);
 }
 
-\motion_blur.fs
+\camera_motion_blur.fs
 
 #version 330 core
 
@@ -1464,9 +1478,7 @@ void main()
 
 in vec2 v_uv;
 
-uniform mat4 u_inv_viewprojection; // inverse model->view
-uniform mat4 u_prev_viewprojection; // previous model->view->projection
-uniform mat4 u_currentToPrevMat;
+uniform mat4 u_currentToPrevMat; // prev_viewproj * inv_viewproj
 uniform sampler2D u_texture;
 uniform sampler2D u_depth;
 uniform int currentFps;
@@ -1491,13 +1503,13 @@ void main(){
 
 	vec2 blur_vector = previous.xy - v_uv; // range [-1, 1]
 
-	vec2 normal = normalize(blur_vector);
-	// Map values to be between 0 and 1.
-	normal.x = (normal.x + 1) * 0.5;
-	normal.y = (normal.y + 1) * 0.5;
-	// Convert to array of color values.
-	FragColor = vec4(normal.x, normal.y, 0.0, 1.0);
-	return;
+	// vec2 normal = normalize(blur_vector);
+	// // Map values to be between 0 and 1.
+	// normal.x = (normal.x + 1) * 0.5;
+	// normal.y = (normal.y + 1) * 0.5;
+	// // Convert to array of color values.
+	// FragColor = vec4(normal.x, normal.y, 0.0, 1.0);
+	// return;
 
 	float blurScale = currentFps / 60.0;
 
@@ -1508,10 +1520,48 @@ void main(){
     	vec2 offset = blurScale * blur_vector * (float(i) / float(nSamples - 1) - 0.5);
   
 	// sample & add to result:
-    	result += texture(u_texture, v_uv + offset);
+    	result += texture(u_texture, v_uv + offset); // already in linear
    	}
  
 	result /= float(nSamples);
-	FragColor = vec4(gamma(result.xyz),result.a);
+	FragColor = vec4(result.xyz, result.a);
+}
+
+
+\object_motion_blur.fs
+
+#version 330 core
+#include "gamma_functions"
+
+in vec2 v_uv;
+
+const int MAX_SAMPLES = 10;
+
+uniform sampler2D u_texture;
+uniform sampler2D u_velocity;
+uniform sampler2D u_depth;
+uniform int currentFps;
+// uniform int nSamples;
+
+out vec4 FragColor;
+
+void main() {
+
+	float depth = texture(u_depth, v_uv).r;
+	if (depth >= 1.0) {
+		discard;
+	}
+	vec2 velocity = texture(u_velocity, v_uv).rg;
+	float velocity_scale = currentFps / 60.0; //our target fps is 60
+	vec2 texelSize = 1.0 / vec2(textureSize(u_texture, 0)); // 0: texture size at mipmap level 0 
+	float speed = length(velocity / texelSize);
+  	int nSamples = clamp(int(speed), 1, MAX_SAMPLES);
+
+   	vec4 res = texture(u_texture, v_uv); // already in linear
+   	for (int i = 1; i < nSamples; ++i) {
+    	vec2 offset = velocity * (float(i) / float(nSamples - 1) - 0.5);
+    	res += texture(u_texture, v_uv + offset); 
+   	}
+   	FragColor = res / float(nSamples);
 
 }

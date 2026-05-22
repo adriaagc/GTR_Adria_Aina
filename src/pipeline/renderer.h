@@ -114,6 +114,7 @@ namespace SCN {
 		Camera prev_camera;
 		CORE::BaseApplication* app = CORE::BaseApplication::instance;
 		int nSamples = 7;
+		bool isCameraBlur = true;
 
 		//updated every frame
 		Renderer(const char* shaders_atlas_filename );
@@ -166,7 +167,7 @@ namespace SCN {
 		void renderTonemapper(GFX::Mesh* mesh);
 		void NDTonemapper(GFX::Mesh* mesh);
 
-		void finallRender(GFX::Mesh* mesh, GFX::FBO* texture);
+		void finalRender(GFX::Mesh* mesh);
 		void applyMotonBlur(GFX::Mesh* mesh);
 
 		void showUI();
