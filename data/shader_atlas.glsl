@@ -20,6 +20,7 @@ tonemapperND quad.vs tonemapperND.fs
 render_screen quad.vs render_screen.fs
 camera_motion_blur quad.vs camera_motion_blur.fs
 object_motion_blur quad.vs object_motion_blur.fs
+fill_vbuffer basic.vs fill_vbuffer.fs
 
 
 \gamma_functions
@@ -244,6 +245,7 @@ uniform vec3 u_camera_pos;
 uniform mat4 u_model;
 uniform mat4 u_viewprojection;
 uniform mat4 u_prev_viewprojection;
+uniform mat4 u_prev_model;
 
 //this will store the color for the pixel shader
 out vec3 v_position;
@@ -264,6 +266,7 @@ void main()
 	//calcule the vertex in object space
 	v_position = a_vertex;
 	v_world_position = (u_model * vec4( v_position, 1.0) ).xyz;
+	vec3 v_prev_world_position = (u_prev_model * vec4( v_position, 1.0) ).xyz;
 	
 	//store the color in the varying var to use it from the pixel shader
 	v_color = a_color;
@@ -271,8 +274,8 @@ void main()
 	//store the texture coordinates
 	v_uv = a_coord;
 
-	//calcule the vertex in objet space at the previous frame
-	v_prev_position = u_prev_viewprojection * vec4(v_world_position, 1.0);
+	//calcule the vertex in objet space at current and previous frames
+	v_prev_position = u_prev_viewprojection * vec4(v_prev_world_position, 1.0);
 	v_current_position = u_viewprojection * vec4(v_world_position, 1.0);
 
 	//calcule the position of the vertex using the matrices
@@ -634,7 +637,18 @@ void main()
 	//VELOCITY BUFFER
 	vec2 a = (v_current_position.xy / v_current_position.w) * 0.5 + 0.5;
 	vec2 b = (v_prev_position.xy / v_prev_position.w) * 0.5 + 0.5;
-	gbuffer_velocity = vec4(a - b, 0.0, 1.0); 
+
+	vec2 velocity = a - b;
+
+	// vec2 velocity = a - b;
+	// vec2 velocity_normal = normalize(velocity);
+	// // Map values to be between 0 and 1.
+	// velocity_normal.x = (velocity_normal.x + 1) * 0.5;
+	// velocity_normal.y = (velocity_normal.y + 1) * 0.5;
+	// // Convert to array of color values.
+	// gbuffer_velocity = vec4(velocity_normal.x, velocity_normal.y, 0.0, 1.0);
+
+	gbuffer_velocity = vec4(velocity, 0.0, 1.0); 
 }
 
 //-------------------------------------------------------------------------//
@@ -1563,5 +1577,18 @@ void main() {
     	res += texture(u_texture, v_uv + offset); 
    	}
    	FragColor = res / float(nSamples);
+}
 
+\fill_vbuffer.fs
+
+in vec4 v_prev_position;
+in vec4 v_current_position;
+
+out vec2 FragColor;
+
+void main() {
+//VELOCITY BUFFER
+	vec2 a = (v_current_position.xy / v_current_position.w) * 0.5 + 0.5;
+	vec2 b = (v_prev_position.xy / v_prev_position.w) * 0.5 + 0.5;
+	FragColor = a - b; 
 }

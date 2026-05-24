@@ -39,8 +39,10 @@ namespace SCN {
 			GFX::Mesh* mesh = nullptr;
 			Material* material = nullptr;
 			Matrix44 model;
+			Matrix44 prev_model;
 		};
 
+		std::vector<Matrix44> prev_models;
 		std::vector<sRenderable> opaque_list;
 		std::vector<sRenderable> translucent_list;
 
@@ -115,7 +117,7 @@ namespace SCN {
 		CORE::BaseApplication* app = CORE::BaseApplication::instance;
 		int nSamples = 7;
 		bool isCameraBlur = true;
-
+		GFX::FBO* vBuffer;
 		//updated every frame
 		Renderer(const char* shaders_atlas_filename );
 		~Renderer();
@@ -151,7 +153,7 @@ namespace SCN {
 
 		//to fill the framebuffer without drawing from the perspective of the light
 		void renderPlain(Camera* light_cam, const Matrix44 model, GFX::Mesh* mesh, SCN::Material* material);
-		void renderGBuffer(const Matrix44 model, GFX::Mesh* mesh, SCN::Material* material);
+		void renderGBuffer(const Matrix44 model, const Matrix44 prev_model, GFX::Mesh* mesh, SCN::Material* material);
 
 		//Light Volumes:
 		void renderAmbient(GFX::Mesh* mesh);
@@ -169,6 +171,7 @@ namespace SCN {
 
 		void finalRender(GFX::Mesh* mesh);
 		void applyMotonBlur(GFX::Mesh* mesh);
+		void renderVBuffer(const Matrix44 model, GFX::Mesh* mesh, SCN::Material* material);
 
 		void showUI();
 		void controlRenderMode();

@@ -71,7 +71,6 @@ Renderer::Renderer(const char* shader_atlas_filename)
 	ao_sample_points = generateSpherePoints(sample_count, 1.0, hemi); //generate random samples inside sphere of radius 1
 	half_ssao_FBO = new GFX::FBO();
 	half_ssao_FBO->create(WIDTH/2, HEIGHT/2, 1, GL_RGB, GL_UNSIGNED_BYTE, false); // half-resolution ssao
-
 }
 
 Renderer::~Renderer() {
@@ -86,6 +85,7 @@ Renderer::~Renderer() {
 	if (ssao_FBO) delete ssao_FBO;
 	if (half_ssao_FBO) delete half_ssao_FBO;
 	if (mapper_FBO) delete mapper_FBO;
+	if (vBuffer) delete vBuffer;
 }
 
 void Renderer::setupScene()
@@ -102,7 +102,7 @@ void Renderer::parseNode(Node* node){
 	}
 
 	if (node->material && node->material->alpha_mode == BLEND) {
-		//node->material->shininess = this->shininess;
+		//node->material->shininess = this->shininess
 		translucent_list.push_back({
 			.mesh = node->mesh,
 			.material = node->material,
@@ -110,11 +110,24 @@ void Renderer::parseNode(Node* node){
 			});
 	}
 	else {
-		opaque_list.push_back({
-			.mesh = node->mesh,
-			.material = node->material,
-			.model = node->getGlobalMatrix()
-			});
+		if (!prev_models.empty()) {
+			int last_idx = prev_models.size() - 1;
+			opaque_list.push_back({
+				.mesh = node->mesh,
+				.material = node->material,
+				.model = node->getGlobalMatrix(),
+				.prev_model = prev_models[last_idx]
+				});
+			prev_models.pop_back(); //remove the last element
+		}
+		else {
+			opaque_list.push_back({
+				.mesh = node->mesh,
+				.material = node->material,
+				.model = node->getGlobalMatrix(),
+				});
+		}
+		
 	}
 
 	for (Node* child : node->children) {
@@ -127,10 +140,18 @@ void Renderer::parseSceneEntities(SCN::Scene* scene, Camera* cam) {
 	// TODO: GENERATE RENDERABLES
 	// ==========================
 
+	// if not empty store previous model matrices
+	prev_models.clear();
+	if (!opaque_list.empty()) { 
+		int list_size = opaque_list.size() - 1; // last index of opaque_list
+		for (int i = 0; i < opaque_list.size(); i++) {
+			prev_models.push_back(opaque_list[list_size - i].model); //firt in opaque_list is last in prev_models
+		}
+	}
+
 	opaque_list.clear();
 	translucent_list.clear();
 	lights_list.clear();
-
 
 	for (int i = 0; i < scene->entities.size(); i++) {
 		BaseEntity* entity = scene->entities[i];
@@ -139,7 +160,7 @@ void Renderer::parseSceneEntities(SCN::Scene* scene, Camera* cam) {
 			continue;
 		}
 
-		// Store Prefab Entitys
+		// Store Prefab Entities
 		// ...
 		//		Store Children Prefab Entities
 
@@ -156,6 +177,7 @@ void Renderer::parseSceneEntities(SCN::Scene* scene, Camera* cam) {
 			lights_list.push_back(l);
 		}
 	}
+
 }
 
 char Renderer::isInsideFrustum(sRenderable* obj, Camera* camera) {
@@ -278,7 +300,7 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT); // Clear textures from prev frame
 		for (sRenderable& call : opaque_list) {
-			if (isInsideFrustum(&call, camera) != CLIP_OUTSIDE) renderGBuffer(call.model, call.mesh, call.material);
+			if (isInsideFrustum(&call, camera) != CLIP_OUTSIDE) renderGBuffer(call.model, call.prev_model, call.mesh, call.material);
 		}
 		gbuffer->unbind();
 
@@ -702,7 +724,7 @@ void Renderer::renderPlain(Camera* light_cam, const Matrix44 model, GFX::Mesh* m
 	glFrontFace(GL_CCW);
 }
 
-void Renderer::renderGBuffer(const Matrix44 model, GFX::Mesh* mesh, SCN::Material* material)
+void Renderer::renderGBuffer(const Matrix44 model, const Matrix44 prev_model, GFX::Mesh* mesh, SCN::Material* material)
 {
 	//in case there is nothing to do
 	if (!mesh || !mesh->getNumVertices() || !material)
@@ -734,6 +756,7 @@ void Renderer::renderGBuffer(const Matrix44 model, GFX::Mesh* mesh, SCN::Materia
 	//For the basic.vs
 	shader->setUniform("u_model", model);
 	shader->setUniform("u_prev_viewprojection", prev_camera.viewprojection_matrix); // needed for per-object motion blur
+	shader->setUniform("u_prev_model", prev_model);
 
 	// Upload camera uniforms
 	shader->setUniform("u_viewprojection", camera->viewprojection_matrix);
@@ -1279,6 +1302,58 @@ void Renderer::applyMotonBlur(GFX::Mesh* mesh) {
 
 	glEnable(GL_DEPTH_TEST);
 	glDepthMask(GL_TRUE);
+}
+
+
+void Renderer::renderVBuffer(const Matrix44 model, GFX::Mesh* mesh, SCN::Material* material)
+{
+	std::cout << "Checkpoint 2";
+	//in case there is nothing to do
+	if (!mesh || !mesh->getNumVertices() || !material)
+		return;
+	assert(glGetError() == GL_NO_ERROR);
+
+	//define locals to simplify coding
+	GFX::Shader* shader = NULL;
+	Camera* camera = Camera::current;
+
+	glEnable(GL_DEPTH_TEST);
+	glDepthFunc(GL_LESS);
+	glDepthMask(GL_TRUE); //Enable writing to the depth_buffer
+
+
+	//chose a shader
+	shader = GFX::Shader::Get("fill_vbuffer");
+
+	assert(glGetError() == GL_NO_ERROR);
+
+	//no shader? then nothing to render
+	if (!shader)
+		return;
+
+	shader->enable();
+
+	material->bind(shader);
+
+	//For the basic.vs
+	shader->setUniform("u_model", model);
+	shader->setUniform("u_prev_viewprojection", prev_camera.viewprojection_matrix); // needed for per-object motion blur
+
+	// Upload camera uniforms
+	shader->setUniform("u_viewprojection", camera->viewprojection_matrix);
+	shader->setUniform("u_camera_pos", camera->eye);
+	shader->setUniform("u_model", model);
+
+
+	//do the draw call that renders the mesh into the screen
+	mesh->render(GL_TRIANGLES);
+
+	//disable shader
+	shader->disable();
+
+	//set the render state as it was before to avoid problems with future renders
+	glDisable(GL_BLEND);
+	glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 }
 
 #ifndef SKIP_IMGUI
