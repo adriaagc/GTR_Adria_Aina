@@ -20,7 +20,7 @@ tonemapperND quad.vs tonemapperND.fs
 render_screen quad.vs render_screen.fs
 camera_motion_blur quad.vs camera_motion_blur.fs
 object_motion_blur quad.vs object_motion_blur.fs
-fill_vbuffer basic.vs fill_vbuffer.fs
+fill_vbuffer quad.vs fill_vbuffer.fs
 
 
 \gamma_functions
@@ -638,7 +638,7 @@ void main()
 	vec2 a = (v_current_position.xy / v_current_position.w) * 0.5 + 0.5;
 	vec2 b = (v_prev_position.xy / v_prev_position.w) * 0.5 + 0.5;
 
-	vec2 velocity = a - b;
+	vec2 velocity = (a - b)*0.5 + 0.5;
 
 	// vec2 velocity = a - b;
 	// vec2 velocity_normal = normalize(velocity);
@@ -1581,14 +1581,38 @@ void main() {
 
 \fill_vbuffer.fs
 
-in vec4 v_prev_position;
-in vec4 v_current_position;
+#version 330 core 
+
+in vec2 v_uv;
+
+uniform sampler2D u_depth;
+uniform mat4 u_inv_viewprojection;
+uniform mat4 u_viewprojection;
 
 out vec2 FragColor;
 
 void main() {
+	float depth = texture(u_depth, v_uv).r;
+	if (depth >= 1.0) {
+		discard;
+	}
+
+	depth = depth * 2.0 - 1.0;
+	vec2 clip_coords = v_uv * 2.0 - 1.0;
+	vec4 H = vec4(clip_coords, depth, 1.0);
+	vec4 D = u_inv_viewprojection * H;
+	vec4 world_pos = D / D.w;
+	vec4 current_pos = H; // [-1, 1]
+	current_pos = 0.5 * current_pos + 0.5;
+	vec4 prev_pos = u_viewprojection * world_pos;
+	prev_pos /= prev_pos.w;
+	prev_pos = 0.5 * prev_pos + 0.5;
+	
+
 //VELOCITY BUFFER
-	vec2 a = (v_current_position.xy / v_current_position.w) * 0.5 + 0.5;
-	vec2 b = (v_prev_position.xy / v_prev_position.w) * 0.5 + 0.5;
-	FragColor = a - b; 
+	// vec2 a = (v_current_position.xy / v_current_position.w) * 0.5 + 0.5;
+	// vec2 b = (v_prev_position.xy / v_prev_position.w) * 0.5 + 0.5;
+	//vec2 velocity = a - b;
+	vec2 velocity = (current_pos.xy - prev_pos.xy) / 2.0;
+	FragColor = velocity; 
 }

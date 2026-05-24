@@ -171,7 +171,7 @@ namespace SCN {
 
 		void finalRender(GFX::Mesh* mesh);
 		void applyMotonBlur(GFX::Mesh* mesh);
-		void renderVBuffer(const Matrix44 model, GFX::Mesh* mesh, SCN::Material* material);
+		void renderVBuffer(const Matrix44 model, const Matrix44 prev_model, GFX::Mesh* mesh, SCN::Material* material, GFX::Mesh* quad);
 
 		void showUI();
 		void controlRenderMode();

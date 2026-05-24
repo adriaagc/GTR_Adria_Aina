@@ -71,6 +71,10 @@ Renderer::Renderer(const char* shader_atlas_filename)
 	ao_sample_points = generateSpherePoints(sample_count, 1.0, hemi); //generate random samples inside sphere of radius 1
 	half_ssao_FBO = new GFX::FBO();
 	half_ssao_FBO->create(WIDTH/2, HEIGHT/2, 1, GL_RGB, GL_UNSIGNED_BYTE, false); // half-resolution ssao
+
+	//Velocity Buffer:
+	vBuffer = new GFX::FBO();
+	vBuffer->create(WIDTH, HEIGHT, 1, GL_RG, GL_FLOAT, false);
 }
 
 Renderer::~Renderer() {
@@ -315,6 +319,17 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT); // Clear textures from prev frame
 		blurFBO(quad);
 		ssao_FBO->unbind();
+
+	//VELOCITY BUFFER:
+		vBuffer->bind();
+		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT); // Clear textures from prev frame
+		for (sRenderable& call : opaque_list) {
+			if (isInsideFrustum(&call, camera) != CLIP_OUTSIDE) renderVBuffer(call.model, call.prev_model, call.mesh, call.material, quad);
+		}
+		vBuffer->unbind();
+		vBuffer->color_textures[0]->toViewport();
+		return;
+
 
 	//LIGHT VOLUMES:
 		if (isLightVol) {
@@ -755,7 +770,7 @@ void Renderer::renderGBuffer(const Matrix44 model, const Matrix44 prev_model, GF
 
 	//For the basic.vs
 	shader->setUniform("u_model", model);
-	shader->setUniform("u_prev_viewprojection", prev_camera.viewprojection_matrix); // needed for per-object motion blur
+	shader->setUniform("u_prev_viewprojection", camera->viewprojection_matrix); // needed for per-object motion blur
 	shader->setUniform("u_prev_model", prev_model);
 
 	// Upload camera uniforms
@@ -1289,7 +1304,7 @@ void Renderer::applyMotonBlur(GFX::Mesh* mesh) {
 	shader->enable(); 
 
 	shader->setUniform("u_texture", lighting_FBO->color_textures[0], 0);
-	shader->setUniform("u_velocity", gbuffer->color_textures[3], 1);
+	shader->setUniform("u_velocity", vBuffer->color_textures[0], 1);
 	shader->setUniform("u_depth", lighting_FBO->depth_texture, 2);
 	shader->setUniform("currentFps",app->fps);
 	shader->setUniform("u_currentToPrevMat", currentToPrev);
@@ -1305,9 +1320,8 @@ void Renderer::applyMotonBlur(GFX::Mesh* mesh) {
 }
 
 
-void Renderer::renderVBuffer(const Matrix44 model, GFX::Mesh* mesh, SCN::Material* material)
+void Renderer::renderVBuffer(const Matrix44 model, const Matrix44 prev_model, GFX::Mesh* mesh, SCN::Material* material, GFX::Mesh* quad)
 {
-	std::cout << "Checkpoint 2";
 	//in case there is nothing to do
 	if (!mesh || !mesh->getNumVertices() || !material)
 		return;
@@ -1333,20 +1347,25 @@ void Renderer::renderVBuffer(const Matrix44 model, GFX::Mesh* mesh, SCN::Materia
 
 	shader->enable();
 
-	material->bind(shader);
+	//material->bind(shader);
 
 	//For the basic.vs
 	shader->setUniform("u_model", model);
-	shader->setUniform("u_prev_viewprojection", prev_camera.viewprojection_matrix); // needed for per-object motion blur
+	shader->setUniform("u_prev_viewprojection", camera->viewprojection_matrix); // needed for per-object motion blur
+	shader->setUniform("u_prev_model", prev_model);
 
 	// Upload camera uniforms
 	shader->setUniform("u_viewprojection", camera->viewprojection_matrix);
 	shader->setUniform("u_camera_pos", camera->eye);
 	shader->setUniform("u_model", model);
 
+	shader->setUniform("u_depth", gbuffer->depth_texture, 0);
+	shader->setUniform("u_inv_viewprojection", camera->inverse_viewprojection_matrix);
+	shader->setUniform("u_viewprojection", prev_camera.viewprojection_matrix);
+
 
 	//do the draw call that renders the mesh into the screen
-	mesh->render(GL_TRIANGLES);
+	quad->render(GL_TRIANGLES);
 
 	//disable shader
 	shader->disable();
