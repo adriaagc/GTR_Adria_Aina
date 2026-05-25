@@ -117,7 +117,9 @@ namespace SCN {
 		CORE::BaseApplication* app = CORE::BaseApplication::instance;
 		int nSamples = 7;
 		bool isCameraBlur = true;
-		GFX::FBO* vBuffer;
+		GFX::FBO* vBufferCam;
+		GFX::FBO* vBufferObj;
+
 		//updated every frame
 		Renderer(const char* shaders_atlas_filename );
 		~Renderer();
@@ -170,7 +172,9 @@ namespace SCN {
 
 		void finalRender(GFX::Mesh* mesh);
 		void applyMotonBlur(GFX::Mesh* mesh);
-		void renderVBuffer(GFX::Mesh* mesh);
+		void renderVBufferCamera(GFX::Mesh* mesh);
+		void renderVBufferObject(const Matrix44 model, const Matrix44 prev_model, GFX::Mesh* mesh, SCN::Material* material);
+
 
 		void showUI();
 		void controlRenderMode();

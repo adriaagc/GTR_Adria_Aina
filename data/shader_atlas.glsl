@@ -21,7 +21,7 @@ render_screen quad.vs render_screen.fs
 camera_motion_blur quad.vs camera_motion_blur.fs
 object_motion_blur quad.vs object_motion_blur.fs
 fill_vbuffer quad.vs fill_vbuffer.fs
-
+fill_vbuffer2 basic.vs fill_vbuffer2.fs
 
 \gamma_functions
 
@@ -1617,5 +1617,22 @@ void main() {
 	vec2 prev_pos = 0.5 * prev_clip.xy + 0.5; // [0, 1]
 	//VELOCITY BUFFER
 	vec2 velocity = current_pos.xy - prev_pos.xy;
-	FragColor = velocity; 
+	FragColor = velocity;
+}
+
+
+\fill_vbuffer2.fs
+
+#version 330 core
+
+in vec4 v_current_position;
+in vec4 v_prev_position;
+
+out vec2 FragColor;
+
+void main() {
+	vec2 a = v_current_position.xy / v_current_position.w;
+	vec2 b = v_prev_position.xy / v_prev_position.w;
+
+	FragColor = (a - b) * 0.5;
 }

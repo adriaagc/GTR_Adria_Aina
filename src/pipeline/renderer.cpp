@@ -72,9 +72,12 @@ Renderer::Renderer(const char* shader_atlas_filename)
 	half_ssao_FBO = new GFX::FBO();
 	half_ssao_FBO->create(WIDTH/2, HEIGHT/2, 1, GL_RGB, GL_UNSIGNED_BYTE, false); // half-resolution ssao
 
-	//Velocity Buffer:
-	vBuffer = new GFX::FBO();
-	vBuffer->create(WIDTH, HEIGHT, 1, GL_RG, GL_FLOAT, false);
+	//Velocity Buffer Camera:
+	vBufferCam = new GFX::FBO();
+	vBufferCam->create(WIDTH, HEIGHT, 1, GL_RG, GL_FLOAT, false);
+	//Velocity Buffer Object:
+	vBufferObj = new GFX::FBO();
+	vBufferObj->create(WIDTH, HEIGHT, 1, GL_RG, GL_FLOAT, false);
 }
 
 Renderer::~Renderer() {
@@ -89,7 +92,8 @@ Renderer::~Renderer() {
 	if (ssao_FBO) delete ssao_FBO;
 	if (half_ssao_FBO) delete half_ssao_FBO;
 	if (mapper_FBO) delete mapper_FBO;
-	if (vBuffer) delete vBuffer;
+	if (vBufferCam) delete vBufferCam;
+	if (vBufferObj) delete vBufferObj;
 }
 
 void Renderer::setupScene()
@@ -320,13 +324,21 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 		blurFBO(quad);
 		ssao_FBO->unbind();
 
-	//VELOCITY BUFFER:
-		vBuffer->bind();
+	//VELOCITY BUFFER Camera and Object:
+		vBufferCam->bind();
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT); // Clear textures from prev frame
-		renderVBuffer(quad);
-		vBuffer->unbind();
-		//vBuffer->color_textures[0]->toViewport();
-		//return;
+		renderVBufferCamera(quad);
+		vBufferCam->unbind();
+
+		vBufferObj->bind();
+		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT); // Clear textures from prev frame
+		for (sRenderable& call : opaque_list) {
+			if (isInsideFrustum(&call, camera) != CLIP_OUTSIDE) renderVBufferObject(call.model, call.prev_model, call.mesh, call.material);
+		}
+		vBufferObj->unbind();
+
+		vBufferObj->color_textures[0]->toViewport();
+		return;
 
 	//LIGHT VOLUMES:
 		if (isLightVol) {
@@ -1207,7 +1219,7 @@ void Renderer::applyMotonBlur(GFX::Mesh* mesh) {
 	shader->enable(); 
 
 	shader->setUniform("u_texture", lighting_FBO->color_textures[0], 0);
-	shader->setUniform("u_velocity", vBuffer->color_textures[0], 1);
+	shader->setUniform("u_velocity", vBufferCam->color_textures[0], 1);
 	shader->setUniform("u_depth", lighting_FBO->depth_texture, 2);
 	shader->setUniform("currentFps",app->fps);
 	shader->setUniform("u_currentToPrevMat", currentToPrev);
@@ -1223,7 +1235,7 @@ void Renderer::applyMotonBlur(GFX::Mesh* mesh) {
 }
 
 
-void Renderer::renderVBuffer(GFX::Mesh* mesh)
+void Renderer::renderVBufferCamera(GFX::Mesh* mesh)
 {
 	//in case there is nothing to do
 	if (!mesh || !mesh->getNumVertices())
@@ -1254,6 +1266,52 @@ void Renderer::renderVBuffer(GFX::Mesh* mesh)
 	shader->setUniform("u_depth", gbuffer->depth_texture, 0);
 	shader->setUniform("u_prev_viewprojection", prev_camera.viewprojection_matrix);
 	shader->setUniform("u_inv_viewprojection", camera->inverse_viewprojection_matrix);
+
+	//do the draw call that renders the mesh into the screen
+	mesh->render(GL_TRIANGLES);
+
+	//disable shader
+	shader->disable();
+
+	//set the render state as it was before to avoid problems with future renders
+	glDisable(GL_BLEND);
+	glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+}
+
+void Renderer::renderVBufferObject(const Matrix44 model, const Matrix44 prev_model, GFX::Mesh* mesh, SCN::Material* material)
+{
+	//in case there is nothing to do
+	if (!mesh || !mesh->getNumVertices() || !material)
+		return;
+	assert(glGetError() == GL_NO_ERROR);
+
+	//define locals to simplify coding
+	GFX::Shader* shader = NULL;
+	Camera* camera = Camera::current;
+
+	glEnable(GL_DEPTH_TEST);
+	glDepthFunc(GL_LESS);
+	glDepthMask(GL_TRUE); //Enable writing to the depth_buffer
+
+	//chose a shader
+	shader = GFX::Shader::Get("fill_vbuffer2");
+
+	//no shader? then nothing to render
+	if (!shader)
+		return;
+
+	shader->enable();
+
+	material->bind(shader);
+
+	//For the basic.vs
+	shader->setUniform("u_model", model);
+	shader->setUniform("u_prev_viewprojection", prev_camera.viewprojection_matrix); // needed for per-object motion blur
+	shader->setUniform("u_viewprojection", camera->viewprojection_matrix);
+	shader->setUniform("u_prev_model", prev_model);
+
+	// Upload camera uniforms
+	shader->setUniform("u_camera_pos", camera->eye);
 
 	//do the draw call that renders the mesh into the screen
 	mesh->render(GL_TRIANGLES);
