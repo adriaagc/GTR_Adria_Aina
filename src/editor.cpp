@@ -782,7 +782,7 @@ void SceneEditor::CarMovement(double delta_time, Camera* camera)
 	static float time = 0.0f; //static becouse we want to keep the value outside the function, until the program is closed. 
 	time += delta_time;
 
-	float speed = 2.0f;   // velocitat del moviment
+	float speed = 20.0f;   // velocitat del moviment
 	float amplitude = 1.0f; // distància màxima que recorre
 
 	// sin oscil·la entre -1 i 1, així el cotxe va endavant i endarrere

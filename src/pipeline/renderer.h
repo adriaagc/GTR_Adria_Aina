@@ -42,7 +42,6 @@ namespace SCN {
 			Matrix44 prev_model;
 		};
 
-		std::vector<Matrix44> prev_models;
 		std::vector<sRenderable> opaque_list;
 		std::vector<sRenderable> translucent_list;
 
@@ -119,6 +118,7 @@ namespace SCN {
 		bool isCameraBlur = true;
 		GFX::FBO* vBufferCam;
 		GFX::FBO* vBufferObj;
+		bool isFirstFrame = true;
 
 		//updated every frame
 		Renderer(const char* shaders_atlas_filename );

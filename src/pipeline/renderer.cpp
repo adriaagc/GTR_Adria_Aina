@@ -118,21 +118,20 @@ void Renderer::parseNode(Node* node){
 			});
 	}
 	else {
-		if (!prev_models.empty()) {
-			int last_idx = prev_models.size() - 1;
+		if (!isFirstFrame) { // then store the prev_model
 			opaque_list.push_back({
 				.mesh = node->mesh,
 				.material = node->material,
 				.model = node->getGlobalMatrix(),
-				.prev_model = prev_models[last_idx]
+				.prev_model = node->getPrevGlobalMatrix()
 				});
-			prev_models.pop_back(); //remove the last element
 		}
 		else {
 			opaque_list.push_back({
 				.mesh = node->mesh,
 				.material = node->material,
 				.model = node->getGlobalMatrix(),
+				.prev_model = node->getGlobalMatrix()
 				});
 		}
 		
@@ -147,15 +146,6 @@ void Renderer::parseSceneEntities(SCN::Scene* scene, Camera* cam) {
 	// HERE =====================
 	// TODO: GENERATE RENDERABLES
 	// ==========================
-
-	// if not empty store previous model matrices
-	prev_models.clear();
-	if (!opaque_list.empty()) { 
-		int list_size = opaque_list.size() - 1; // last index of opaque_list
-		for (int i = 0; i < opaque_list.size(); i++) {
-			prev_models.push_back(opaque_list[list_size - i].model); //firt in opaque_list is last in prev_models
-		}
-	}
 
 	opaque_list.clear();
 	translucent_list.clear();
@@ -185,6 +175,8 @@ void Renderer::parseSceneEntities(SCN::Scene* scene, Camera* cam) {
 			lights_list.push_back(l);
 		}
 	}
+
+	isFirstFrame = false;
 
 }
 
@@ -337,9 +329,6 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 		}
 		vBufferObj->unbind();
 
-		vBufferObj->color_textures[0]->toViewport();
-		return;
-
 	//LIGHT VOLUMES:
 		if (isLightVol) {
 			gbuffer->depth_texture->copyTo(lighting_FBO->depth_texture);
@@ -397,6 +386,8 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 			if (isInsideFrustum(&call, camera) != CLIP_OUTSIDE) renderMeshWithMaterial(call.model, call.mesh, call.material);
 		}
 	}
+
+	vBufferObj->color_textures[0]->toViewport();
 	//sotre previous camera.
 	prev_camera = *camera;
 }
