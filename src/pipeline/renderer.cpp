@@ -285,7 +285,7 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 //QUAD:
 	GFX::Mesh* quad = GFX::Mesh::getQuad();
 
-//THE RENDERING MODES:
+//THE RENDERING MODES: we will apply lighting to the lighting_FBO, then we will apply motion blur, and finally we apply a tone mapper.
 
 	if (isPhong) {
 		lighting_FBO->bind();
@@ -323,13 +323,10 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 	//VELOCITY BUFFER:
 		vBuffer->bind();
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT); // Clear textures from prev frame
-		for (sRenderable& call : opaque_list) {
-			if (isInsideFrustum(&call, camera) != CLIP_OUTSIDE) renderVBuffer(call.model, call.prev_model, call.mesh, call.material, quad);
-		}
+		renderVBuffer(quad);
 		vBuffer->unbind();
-		vBuffer->color_textures[0]->toViewport();
-		return;
-
+		//vBuffer->color_textures[0]->toViewport();
+		//return;
 
 	//LIGHT VOLUMES:
 		if (isLightVol) {
@@ -353,18 +350,9 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 			}
 
 			lighting_FBO->unbind(); //reset rendering to the framebuffer.
-
 			//lighting_FBO->color_textures[0]->toViewport();
-
 		}
-	//DEFERRED COOK-TORRANCE:
-		else if (isDeferredCook) {
-			lighting_FBO->bind();
-			glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-			renderCookDeferred(quad);
-			lighting_FBO->unbind();
-		}
-	//DEFERRED PHONG:
+		//DEFERRED PHONG or COOK-TORRANCE:
 		else {
 			lighting_FBO->bind();
 			glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -372,7 +360,6 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 			lighting_FBO->unbind();
 		}
 	}
-
 	else { //if isCook == True
 		lighting_FBO->bind();
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -398,7 +385,7 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 			if (isInsideFrustum(&call, camera) != CLIP_OUTSIDE) renderMeshWithMaterial(call.model, call.mesh, call.material);
 		}
 	}
-
+	//sotre previous camera.
 	prev_camera = *camera;
 }
 
@@ -417,9 +404,6 @@ void Renderer::renderCook(const Matrix44 model, GFX::Mesh* mesh, SCN::Material* 
 
 	//chose a shader
 	shader = GFX::Shader::Get("phong_cook");
-
-
-	assert(glGetError() == GL_NO_ERROR);
 
 	//no shader? then nothing to render
 	if (!shader)
@@ -455,14 +439,6 @@ void Renderer::renderCook(const Matrix44 model, GFX::Mesh* mesh, SCN::Material* 
 	shader->setUniform("u_shadowmaps[0]", fbos[0]->depth_texture, 3);
 	shader->setUniform("u_shadowmaps[1]", fbos[1]->depth_texture, 4);
 	shader->setMatrix44Array("u_shadow_vps", shadow_vps, MAX_SHADOWS);
-
-	//Passem les components roughness and metalic directament del material de cada element
-	if (material->textures[3].texture) {
-		shader->setTexture("u_MetalicRoughness", material->textures[3].texture, 5);
-	}
-	else {
-		shader->setTexture("u_MetalicRoughness", GFX::Texture::getWhiteTexture(), 5);
-	}
 
 	// Render just the verticies as a wireframe
 	if (render_wireframe)
@@ -707,8 +683,6 @@ void Renderer::renderPlain(Camera* light_cam, const Matrix44 model, GFX::Mesh* m
 	//chose a shader
 	shader = GFX::Shader::Get("plain");
 
-	assert(glGetError() == GL_NO_ERROR);
-
 	//no shader? then nothing to render
 	if (!shader)
 		return;
@@ -778,6 +752,11 @@ void Renderer::renderGBuffer(const Matrix44 model, const Matrix44 prev_model, GF
 	shader->setUniform("u_camera_pos", camera->eye);
 	shader->setUniform("u_model", model);
 	
+	float delta_time = 1.0f / app->fps;
+	shader->setUniform("u_delta_time", delta_time);
+	shader->setUniform("u_exposure", 0.5f*delta_time);
+	shader->setUniform("u_viewport_size", vec2(WIDTH, HEIGHT));
+	shader->setUniform("u_max_velocity", 32.0f);
 
 	//do the draw call that renders the mesh into the screen
 	mesh->render(GL_TRIANGLES);
@@ -914,12 +893,9 @@ void Renderer::renderQuadMesh(GFX::Mesh* mesh)
 
 	glEnable(GL_DEPTH_TEST);
 
-	//chose a shader
-	shader = GFX::Shader::Get("deferred_phong");
-	//shader = GFX::Shader::Get("deferred_cook");
-
-
-	assert(glGetError() == GL_NO_ERROR);
+	//chose a deferred shader (phong or Cook-Torrance)
+	if (isDeferredPhong) shader = GFX::Shader::Get("deferred_phong");
+	else shader = GFX::Shader::Get("deferred_cook");
 
 	//no shader? then nothing to render
 	if (!shader)
@@ -958,79 +934,6 @@ void Renderer::renderQuadMesh(GFX::Mesh* mesh)
 	shader->setTexture("u_gbuffer_depth", gbuffer->depth_texture, 6);
 	shader->setTexture("u_gbuffer_metallic_roughness", gbuffer->color_textures[2], 7);
 
-	// Ambient Occlusion:
-	shader->setTexture("u_ambient_occlusion", ssao_FBO->color_textures[0], 8);
-
-	// Render just the verticies as a wireframe
-	if (render_wireframe)
-		glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
-
-	//do the draw call that renders the mesh into the screen
-	mesh->render(GL_TRIANGLES);
-
-	//disable shader
-	shader->disable();
-
-	//set the render state as it was before to avoid problems with future renders
-	glDisable(GL_BLEND);
-	glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-}
-
-void Renderer::renderCookDeferred(GFX::Mesh* mesh)
-{
-	//in case there is nothing to do
-	if (!mesh || !mesh->getNumVertices())
-		return;
-	assert(glGetError() == GL_NO_ERROR);
-
-	//define locals to simplify coding
-	GFX::Shader* shader = NULL;
-	Camera* camera = Camera::current;
-
-	glEnable(GL_DEPTH_TEST);
-
-	//chose a shader
-	shader = GFX::Shader::Get("deferred_cook");
-
-	assert(glGetError() == GL_NO_ERROR);
-
-	//no shader? then nothing to render
-	if (!shader)
-		return;
-	shader->enable();
-
-	//UPLOAD UNIFORMS:
-		// Upload camera uniforms
-	shader->setUniform("u_inv_viewprojection", camera->inverse_viewprojection_matrix);
-	shader->setUniform("u_camera_pos", camera->eye);
-
-	// Upload time, for cool shader effects
-	float t = getTime();
-	shader->setUniform("u_time", t);
-
-	// Upload light uniforms
-	shader->setUniform("u_ambient_light", scene->ambient_light);
-	shader->setUniform("u_num_lights", (int)lights_list.size());
-	shader->setUniform("u_shininess", shininess);
-	shader->setUniform3Array("u_light_pos", (float*)light_pos, MAX_LIGHTS);
-	shader->setUniform1Array("u_intensity", light_intensity, MAX_LIGHTS);
-	shader->setUniform3Array("u_light_color", (float*)light_color, MAX_LIGHTS);
-	shader->setUniform1Array("u_light_type", light_type, MAX_LIGHTS);
-	shader->setUniform3Array("u_light_front", (float*)light_front, MAX_LIGHTS);
-	shader->setUniform2Array("u_light_cone", (float*)light_cone, MAX_LIGHTS);
-
-	// Upload shadowmap uniform
-	shader->setUniform("u_shadow_bias", shadow_bias);
-	shader->setUniform("u_shadowmaps[0]", fbos[0]->depth_texture, 2);
-	shader->setUniform("u_shadowmaps[1]", fbos[1]->depth_texture, 3);
-	shader->setMatrix44Array("u_shadow_vps", shadow_vps, MAX_SHADOWS);
-
-	// Bind the GBuffers
-	shader->setTexture("u_gbuffer_color", gbuffer->color_textures[0], 4);
-	shader->setTexture("u_gbuffer_normal", gbuffer->color_textures[1], 5);
-	shader->setTexture("u_gbuffer_depth", gbuffer->depth_texture, 6);
-	shader->setTexture("u_gbuffer_metallic_roughness", gbuffer->color_textures[2], 7);
-	
 	// Ambient Occlusion:
 	shader->setTexture("u_ambient_occlusion", ssao_FBO->color_textures[0], 8);
 
@@ -1320,10 +1223,10 @@ void Renderer::applyMotonBlur(GFX::Mesh* mesh) {
 }
 
 
-void Renderer::renderVBuffer(const Matrix44 model, const Matrix44 prev_model, GFX::Mesh* mesh, SCN::Material* material, GFX::Mesh* quad)
+void Renderer::renderVBuffer(GFX::Mesh* mesh)
 {
 	//in case there is nothing to do
-	if (!mesh || !mesh->getNumVertices() || !material)
+	if (!mesh || !mesh->getNumVertices())
 		return;
 	assert(glGetError() == GL_NO_ERROR);
 
@@ -1347,25 +1250,13 @@ void Renderer::renderVBuffer(const Matrix44 model, const Matrix44 prev_model, GF
 
 	shader->enable();
 
-	//material->bind(shader);
-
-	//For the basic.vs
-	shader->setUniform("u_model", model);
-	shader->setUniform("u_prev_viewprojection", camera->viewprojection_matrix); // needed for per-object motion blur
-	shader->setUniform("u_prev_model", prev_model);
-
 	// Upload camera uniforms
-	shader->setUniform("u_viewprojection", camera->viewprojection_matrix);
-	shader->setUniform("u_camera_pos", camera->eye);
-	shader->setUniform("u_model", model);
-
 	shader->setUniform("u_depth", gbuffer->depth_texture, 0);
+	shader->setUniform("u_prev_viewprojection", prev_camera.viewprojection_matrix);
 	shader->setUniform("u_inv_viewprojection", camera->inverse_viewprojection_matrix);
-	shader->setUniform("u_viewprojection", prev_camera.viewprojection_matrix);
-
 
 	//do the draw call that renders the mesh into the screen
-	quad->render(GL_TRIANGLES);
+	mesh->render(GL_TRIANGLES);
 
 	//disable shader
 	shader->disable();

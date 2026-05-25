@@ -101,23 +101,20 @@ void Material::bind(GFX::Shader* shader) {
 
 		shader->setUniform("u_color", color);
 
-		if (texture)
-			shader->setUniform("u_texture", texture, 0);
+		shader->setUniform("u_texture", texture, 0);
 
 		//NORMAL TEXTURE
 		if (normalmap_texture == NULL) {
 			normalmap_texture = GFX::Texture::getWhiteTexture();
 		}
-		if (normalmap_texture)
-			shader->setUniform("u_normalmap", normalmap_texture, 1);
+		
+		shader->setUniform("u_normalmap", normalmap_texture, 1);
 
 		//METALNESS PARAMETER
 		if (metallic_roughness_texture == NULL)
 			metallic_roughness_texture = GFX::Texture::getWhiteTexture();
-			
-
-		if (metallic_roughness_texture)
-			shader->setUniform("u_MetalicRoughness", metallic_roughness_texture,2);
+		
+		shader->setUniform("u_MetalicRoughness", metallic_roughness_texture,2);
 
 
 		// This is used to say which is the alpha threshold to what we should not paint a pixel on the screen (to cut polygons according to texture alpha)

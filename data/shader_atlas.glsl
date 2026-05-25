@@ -609,6 +609,12 @@ uniform sampler2D u_MetalicRoughness;
 uniform float u_alpha_cutoff;
 uniform vec4 u_color;
 
+// Uniforms motion blur:
+uniform float u_delta_time;
+uniform float u_exposure;
+uniform vec2 u_viewport_size;
+uniform float u_max_velocity;
+
 // Replace out vec4 FragColor with:
 layout(location = 0) out vec4 gbuffer_albedo; // store color info here
 layout(location = 1) out vec4 gbuffer_normal_mat; // store normal info here
@@ -635,18 +641,17 @@ void main()
 	gbuffer_metallic_roughness = metallic_roughness;
 
 	//VELOCITY BUFFER
-	vec2 a = (v_current_position.xy / v_current_position.w) * 0.5 + 0.5;
-	vec2 b = (v_prev_position.xy / v_prev_position.w) * 0.5 + 0.5;
+	vec2 a = (v_current_position.xy / v_current_position.w); // [-1, 1]
+	vec2 b = (v_prev_position.xy / v_prev_position.w);
+	vec2 velocity = (a - b) * 0.5; // texture coord's -> + 0.5 cancels out
+	// velocity *= (u_exposure / max(u_delta_time, 0.0001));
+	// velocity *= u_viewport_size * 0.5;
+	// // Clamp very large velocities
+	// float len = length(velocity);
+	// velocity /= max(1.0, len / u_max_velocity);
 
-	vec2 velocity = (a - b)*0.5 + 0.5;
-
-	// vec2 velocity = a - b;
-	// vec2 velocity_normal = normalize(velocity);
-	// // Map values to be between 0 and 1.
-	// velocity_normal.x = (velocity_normal.x + 1) * 0.5;
-	// velocity_normal.y = (velocity_normal.y + 1) * 0.5;
-	// // Convert to array of color values.
-	// gbuffer_velocity = vec4(velocity_normal.x, velocity_normal.y, 0.0, 1.0);
+	// // Optional encoding scale
+	// velocity *= 0.5;
 
 	gbuffer_velocity = vec4(velocity, 0.0, 1.0); 
 }
@@ -1495,6 +1500,7 @@ in vec2 v_uv;
 uniform mat4 u_currentToPrevMat; // prev_viewproj * inv_viewproj
 uniform sampler2D u_texture;
 uniform sampler2D u_depth;
+uniform sampler2D u_velocity;
 uniform int currentFps;
 uniform int nSamples;
 
@@ -1505,17 +1511,17 @@ void main(){
 	if (depth >= 1.0) {
 		discard;
 	}
-	float depth_clip = 2.0 * depth - 1.0; // clip space range [-1, 1]
-	vec2 uv_clip = 2.0 * v_uv - 1.0;
+	// float depth_clip = 2.0 * depth - 1.0; // clip space range [-1, 1]
+	// vec2 uv_clip = 2.0 * v_uv - 1.0;
 
-	//get previous screen space position
-	vec4 clip_coords = vec4(uv_clip.x, uv_clip.y, depth_clip, 1.0);
-	vec4 not_norm_screen_prev_pos = u_currentToPrevMat * clip_coords; // from clip space to world space in homogeneous coord's
-	vec3 previous = not_norm_screen_prev_pos.xyz / not_norm_screen_prev_pos.w; // convert to cartesian coord's
+	// //get previous screen space position
+	// vec4 clip_coords = vec4(uv_clip.x, uv_clip.y, depth_clip, 1.0);
+	// vec4 not_norm_screen_prev_pos = u_currentToPrevMat * clip_coords; // from clip space to world space in homogeneous coord's
+	// vec3 previous = not_norm_screen_prev_pos.xyz / not_norm_screen_prev_pos.w; // convert to cartesian coord's
 
-	previous = previous * 0.5 + 0.5; // to [0,1], texture coordinates
+	// previous = previous * 0.5 + 0.5; // to [0,1], texture coordinates
 
-	vec2 blur_vector = previous.xy - v_uv; // range [-1, 1]
+	// vec2 blur_vector = previous.xy - v_uv; // range [-1, 1]
 
 	// vec2 normal = normalize(blur_vector);
 	// // Map values to be between 0 and 1.
@@ -1524,6 +1530,8 @@ void main(){
 	// // Convert to array of color values.
 	// FragColor = vec4(normal.x, normal.y, 0.0, 1.0);
 	// return;
+
+	vec2 blur_vector = texture(u_velocity, v_uv).rg;
 
 	float blurScale = currentFps / 60.0;
 
@@ -1587,32 +1595,27 @@ in vec2 v_uv;
 
 uniform sampler2D u_depth;
 uniform mat4 u_inv_viewprojection;
-uniform mat4 u_viewprojection;
+uniform mat4 u_prev_viewprojection;
 
 out vec2 FragColor;
 
 void main() {
+
 	float depth = texture(u_depth, v_uv).r;
 	if (depth >= 1.0) {
-		discard;
+		discard; //belongs to the background / skybox
 	}
 
-	depth = depth * 2.0 - 1.0;
-	vec2 clip_coords = v_uv * 2.0 - 1.0;
-	vec4 H = vec4(clip_coords, depth, 1.0);
-	vec4 D = u_inv_viewprojection * H;
-	vec4 world_pos = D / D.w;
-	vec4 current_pos = H; // [-1, 1]
-	current_pos = 0.5 * current_pos + 0.5;
-	vec4 prev_pos = u_viewprojection * world_pos;
-	prev_pos /= prev_pos.w;
-	prev_pos = 0.5 * prev_pos + 0.5;
-	
-
-//VELOCITY BUFFER
-	// vec2 a = (v_current_position.xy / v_current_position.w) * 0.5 + 0.5;
-	// vec2 b = (v_prev_position.xy / v_prev_position.w) * 0.5 + 0.5;
-	//vec2 velocity = a - b;
-	vec2 velocity = (current_pos.xy - prev_pos.xy) / 2.0;
+	vec2 clip_coords = v_uv * 2.0 - 1.0; // [-1, 1]
+	vec4 H = vec4(clip_coords, depth, 1.0); // clip space
+	vec4 D = u_inv_viewprojection * H; // world space
+	vec4 world_pos = D / D.w; // dehomogenize
+	vec2 current_pos = H.xy; // [-1, 1]
+	current_pos = 0.5 * current_pos + 0.5; // [0, 1]
+	vec4 prev_clip = u_prev_viewprojection * world_pos; // clip space in prev frame
+	prev_clip /= prev_clip.w; // dehomogenize
+	vec2 prev_pos = 0.5 * prev_clip.xy + 0.5; // [0, 1]
+	//VELOCITY BUFFER
+	vec2 velocity = current_pos.xy - prev_pos.xy;
 	FragColor = velocity; 
 }

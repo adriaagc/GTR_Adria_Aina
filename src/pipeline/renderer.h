@@ -147,9 +147,8 @@ namespace SCN {
 		//to render one mesh given its material and transformation matrix
 		void renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN::Material* material); // const std::string& shaderName
 
-		//Phong with deferred rendering
+		//Phong or Cook-Torrance with deferred rendering
 		void renderQuadMesh(GFX::Mesh* mesh);
-		void renderCookDeferred(GFX::Mesh* mesh);
 
 		//to fill the framebuffer without drawing from the perspective of the light
 		void renderPlain(Camera* light_cam, const Matrix44 model, GFX::Mesh* mesh, SCN::Material* material);
@@ -171,7 +170,7 @@ namespace SCN {
 
 		void finalRender(GFX::Mesh* mesh);
 		void applyMotonBlur(GFX::Mesh* mesh);
-		void renderVBuffer(const Matrix44 model, const Matrix44 prev_model, GFX::Mesh* mesh, SCN::Material* material, GFX::Mesh* quad);
+		void renderVBuffer(GFX::Mesh* mesh);
 
 		void showUI();
 		void controlRenderMode();
