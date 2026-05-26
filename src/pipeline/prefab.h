@@ -81,7 +81,7 @@ namespace SCN {
 			if (parent)
 				prev_global_model = model * (fast ? parent->prev_global_model : parent->getPrevGlobalMatrix());
 			else
-				prev_global_model = model;
+				prev_global_model = prev_global_model;
 			return prev_global_model;
 		}
 

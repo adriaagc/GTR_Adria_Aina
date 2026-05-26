@@ -125,6 +125,7 @@ void Renderer::parseNode(Node* node){
 				.model = node->getGlobalMatrix(),
 				.prev_model = node->getPrevGlobalMatrix()
 				});
+			if (!node->parent) node->prev_global_model = node->getGlobalMatrix();
 		}
 		else {
 			opaque_list.push_back({
@@ -133,7 +134,28 @@ void Renderer::parseNode(Node* node){
 				.model = node->getGlobalMatrix(),
 				.prev_model = node->getGlobalMatrix()
 				});
+			if (!node->parent) node->prev_global_model = node->getGlobalMatrix();
 		}
+		/*if (isCar) {
+			std::cout << "Current Car Model";
+			Matrix44 current = opaque_list.back().model;
+
+			std::cout
+				<< current.M[0][0] << " " << current.M[0][1] << " " << current.M[0][2] << " " << current.M[0][3] << "\n"
+				<< current.M[1][0] << " " << current.M[1][1] << " " << current.M[1][2] << " " << current.M[1][3] << "\n"
+				<< current.M[2][0] << " " << current.M[2][1] << " " << current.M[2][2] << " " << current.M[2][3] << "\n"
+				<< current.M[3][0] << " " << current.M[3][1] << " " << current.M[3][2] << " " << current.M[3][3] << "\n";
+			
+			std::cout << "Previous Car Model";
+			Matrix44 prev = opaque_list.back().prev_model;
+
+			std::cout
+				<< prev.M[0][0] << " " << prev.M[0][1] << " " << prev.M[0][2] << " " << prev.M[0][3] << "\n"
+				<< prev.M[1][0] << " " << prev.M[1][1] << " " << prev.M[1][2] << " " << prev.M[1][3] << "\n"
+				<< prev.M[2][0] << " " << prev.M[2][1] << " " << prev.M[2][2] << " " << prev.M[2][3] << "\n"
+				<< prev.M[3][0] << " " << prev.M[3][1] << " " << prev.M[3][2] << " " << prev.M[3][3] << "\n";
+			isCar = false;
+		}*/
 		
 	}
 
@@ -153,6 +175,8 @@ void Renderer::parseSceneEntities(SCN::Scene* scene, Camera* cam) {
 
 	for (int i = 0; i < scene->entities.size(); i++) {
 		BaseEntity* entity = scene->entities[i];
+
+		if (entity->name == "car1") isCar = true;//std::cout << "SLAAAAAY!!!! \n";
 
 		if (!entity->visible) {
 			continue;
@@ -284,16 +308,15 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 //THE RENDERING MODES: we will apply lighting to the lighting_FBO, then we will apply motion blur, and finally we apply a tone mapper.
 
 	if (isPhong) {
-		lighting_FBO->bind();
+		mapper_FBO->bind();
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 		for (sRenderable& call : opaque_list) {
 			if (isInsideFrustum(&call, camera) != CLIP_OUTSIDE) renderMeshWithMaterial(call.model, call.mesh, call.material);
 		}
-		lighting_FBO->unbind();
+		mapper_FBO->unbind();
 	}
-
 	else if (isDeferredPhong || isLightVol || isDeferredCook) {
-	//G-BUFFER:
+		//G-BUFFER:
 		gbuffer->bind();
 		GLenum buffers[] = { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2, GL_COLOR_ATTACHMENT3 };// As we are storing more than one texture
 		glDrawBuffers(4, buffers);
@@ -304,8 +327,8 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 		}
 		gbuffer->unbind();
 
-	//AMBIENT OCCLUSION:
-		// low res AO:
+		//AMBIENT OCCLUSION:
+			// low res AO:
 		half_ssao_FBO->bind();
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT); // Clear textures from prev frame
 		renderAmbientOcclusion(quad);
@@ -316,7 +339,7 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 		blurFBO(quad);
 		ssao_FBO->unbind();
 
-	//VELOCITY BUFFER Camera and Object:
+		//VELOCITY BUFFER Camera and Object:
 		vBufferCam->bind();
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT); // Clear textures from prev frame
 		renderVBufferCamera(quad);
@@ -360,20 +383,20 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 			renderQuadMesh(quad);
 			lighting_FBO->unbind();
 		}
+		//APPLY MOTION BLUR
+		mapper_FBO->bind();
+		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+		applyMotonBlur(quad);
+		mapper_FBO->unbind();
 	}
 	else { //if isCook == True
-		lighting_FBO->bind();
+		mapper_FBO->bind();
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 		for (sRenderable call : opaque_list) {
 			if (isInsideFrustum(&call, camera) != CLIP_OUTSIDE) renderCook(call.model, call.mesh, call.material);
 		}
-		lighting_FBO->unbind();
+		mapper_FBO->unbind();
 	}
-
-	mapper_FBO->bind();
-	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-	applyMotonBlur(quad);
-	mapper_FBO->unbind();
 
 	NDTonemapper(quad);
 
@@ -387,7 +410,7 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 		}
 	}
 
-	vBufferObj->color_textures[0]->toViewport();
+	//vBufferObj->color_textures[0]->toViewport();
 	//sotre previous camera.
 	prev_camera = *camera;
 }
@@ -1210,7 +1233,8 @@ void Renderer::applyMotonBlur(GFX::Mesh* mesh) {
 	shader->enable(); 
 
 	shader->setUniform("u_texture", lighting_FBO->color_textures[0], 0);
-	shader->setUniform("u_velocity", vBufferCam->color_textures[0], 1);
+	if (isCameraBlur)  shader->setUniform("u_velocity", vBufferCam->color_textures[0], 1);
+	else shader->setUniform("u_velocity", vBufferObj->color_textures[0], 1);
 	shader->setUniform("u_depth", lighting_FBO->depth_texture, 2);
 	shader->setUniform("currentFps",app->fps);
 	shader->setUniform("u_currentToPrevMat", currentToPrev);
@@ -1275,6 +1299,12 @@ void Renderer::renderVBufferObject(const Matrix44 model, const Matrix44 prev_mod
 	if (!mesh || !mesh->getNumVertices() || !material)
 		return;
 	assert(glGetError() == GL_NO_ERROR);
+	Matrix44 model_c = model;
+	Matrix44 prev_model_c = prev_model;
+	if ((model_c.getTranslation() - prev_model_c.getTranslation()).length() > 0.01f) {
+		int i = 0;
+	}
+
 
 	//define locals to simplify coding
 	GFX::Shader* shader = NULL;
@@ -1346,7 +1376,8 @@ void Renderer::showUI()
 	ImGui::TextColored(ImVec4(0.0f, 1.0f, 0.0f, 1.0f), "POST PROCESSING FX");
 	ImGui::Checkbox("Tonemapper", &isTonemapper);
 	ImGui::Checkbox("Camera Blur", &isCameraBlur);
-	ImGui::SliderInt("Samples blurVec", &nSamples,2,10);
+	ImGui::SliderInt("Samples blurVec", &nSamples, 2, 10);
+	ImGui::SliderFloat("carVelocity", &carVelocity, 0.0, 60.0);
 
 	//To make sure that only on render mode is on at a time:
 	controlRenderMode();

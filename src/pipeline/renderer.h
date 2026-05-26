@@ -45,6 +45,7 @@ namespace SCN {
 		std::vector<sRenderable> opaque_list;
 		std::vector<sRenderable> translucent_list;
 
+		bool isCar = false;
 
 	//LIGHTS:
 		std::vector<LightEntity*> lights_list;
@@ -72,6 +73,8 @@ namespace SCN {
 		bool isCook = false;			//single-pass
 
 		bool* currentRenderMode = &isPhong; //starting mode
+
+		float carVelocity = 7.0f;
 
 
 	//FBOs & shadowmaps

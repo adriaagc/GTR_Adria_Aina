@@ -275,8 +275,9 @@ void main()
 	v_uv = a_coord;
 
 	//calcule the vertex in objet space at current and previous frames
-	v_prev_position = u_prev_viewprojection * vec4(v_prev_world_position, 1.0);
-	v_current_position = u_viewprojection * vec4(v_world_position, 1.0);
+	// v_prev_position = u_prev_viewprojection * vec4(v_prev_world_position, 1.0);
+	v_prev_position = u_viewprojection * vec4(v_prev_world_position, 1.0);
+	v_current_position = u_prev_viewprojection * vec4(v_world_position, 1.0);
 
 	//calcule the position of the vertex using the matrices
 	gl_Position = v_current_position;
@@ -1581,10 +1582,10 @@ void main() {
 
    	vec4 res = texture(u_texture, v_uv); // already in linear
    	for (int i = 1; i < nSamples; ++i) {
-    	vec2 offset = velocity * (float(i) / float(nSamples - 1) - 0.5);
+    	vec2 offset = velocity * velocity_scale * (float(i) / float(nSamples - 1) - 0.5);
     	res += texture(u_texture, v_uv + offset); 
    	}
-   	FragColor = res / float(nSamples);
+   	FragColor = res / float(nSamples); //vec4(velocity.xy*100.0, 0.0, 1.0);  
 }
 
 \fill_vbuffer.fs
