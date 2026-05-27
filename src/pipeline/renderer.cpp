@@ -1,4 +1,4 @@
-#include "renderer.h"
+ï»¿#include "renderer.h"
 
 #include <algorithm> //sort
 
@@ -15,7 +15,9 @@
 #include "../extra/hdre.h"
 #include "../core/ui.h"
 
+
 #include "scene.h"
+
 
 
 using namespace SCN;
@@ -53,19 +55,29 @@ Renderer::Renderer(const char* shader_atlas_filename)
 	//Create the G-Buffer:
 	gbuffer = new GFX::FBO();
 	//int width, int height, int num_textures, int format, int type, bool use_depth_texture
-	//gbuffer->create(WIDTH,HEIGHT, 2, GL_RGBA, GL_UNSIGNED_BYTE, true); //2 textures w/ depth
-	gbuffer->create(WIDTH, HEIGHT, 3, GL_RGBA, GL_UNSIGNED_BYTE, true); //2 textures w/ depth
+	gbuffer->create(WIDTH, HEIGHT, 4, GL_RGBA, GL_UNSIGNED_BYTE, true); //4 textures w/ depth
+	//albedo - normals - metallicRoughness - velocity
 
 	//Light Volumes:
 	lighting_FBO = new GFX::FBO();
 	lighting_FBO->create(WIDTH, HEIGHT, 1, GL_RGBA, GL_FLOAT, true); //1 color texture, same config as G-Buffer.
-	
+
+	mapper_FBO = new GFX::FBO();
+	mapper_FBO->create(WIDTH, HEIGHT, 1, GL_RGBA, GL_FLOAT, true);
+
 	//Ambient Occlusion:
 	ssao_FBO = new GFX::FBO();
 	ssao_FBO->create(WIDTH, HEIGHT, 1, GL_RGB, GL_UNSIGNED_BYTE, false); //1 color texture, same config as G-Buffer.
 	ao_sample_points = generateSpherePoints(sample_count, 1.0, hemi); //generate random samples inside sphere of radius 1
 	half_ssao_FBO = new GFX::FBO();
 	half_ssao_FBO->create(WIDTH/2, HEIGHT/2, 1, GL_RGB, GL_UNSIGNED_BYTE, false); // half-resolution ssao
+
+	//Velocity Buffer Camera:
+	vBufferCam = new GFX::FBO();
+	vBufferCam->create(WIDTH, HEIGHT, 1, GL_RG, GL_FLOAT, false);
+	//Velocity Buffer Object:
+	vBufferObj = new GFX::FBO();
+	vBufferObj->create(WIDTH, HEIGHT, 1, GL_RG, GL_FLOAT, false);
 }
 
 Renderer::~Renderer() {
@@ -79,6 +91,9 @@ Renderer::~Renderer() {
 	if (lighting_FBO) delete lighting_FBO;
 	if (ssao_FBO) delete ssao_FBO;
 	if (half_ssao_FBO) delete half_ssao_FBO;
+	if (mapper_FBO) delete mapper_FBO;
+	if (vBufferCam) delete vBufferCam;
+	if (vBufferObj) delete vBufferObj;
 }
 
 void Renderer::setupScene()
@@ -95,7 +110,7 @@ void Renderer::parseNode(Node* node){
 	}
 
 	if (node->material && node->material->alpha_mode == BLEND) {
-		//node->material->shininess = this->shininess;
+		//node->material->shininess = this->shininess
 		translucent_list.push_back({
 			.mesh = node->mesh,
 			.material = node->material,
@@ -103,11 +118,44 @@ void Renderer::parseNode(Node* node){
 			});
 	}
 	else {
-		opaque_list.push_back({
-			.mesh = node->mesh,
-			.material = node->material,
-			.model = node->getGlobalMatrix()
-			});
+		if (!isFirstFrame) { // then store the prev_model
+			opaque_list.push_back({
+				.mesh = node->mesh,
+				.material = node->material,
+				.model = node->getGlobalMatrix(),
+				.prev_model = node->prev_global_model
+				});
+			node->prev_global_model = node->getGlobalMatrix();
+		}
+		else {
+			opaque_list.push_back({
+				.mesh = node->mesh,
+				.material = node->material,
+				.model = node->getGlobalMatrix(),
+				.prev_model = node->getGlobalMatrix()
+				});
+			node->prev_global_model = node->getGlobalMatrix();
+		}
+		/*if (isCar) {
+			std::cout << "Current Car Model";
+			Matrix44 current = opaque_list.back().model;
+
+			std::cout
+				<< current.M[0][0] << " " << current.M[0][1] << " " << current.M[0][2] << " " << current.M[0][3] << "\n"
+				<< current.M[1][0] << " " << current.M[1][1] << " " << current.M[1][2] << " " << current.M[1][3] << "\n"
+				<< current.M[2][0] << " " << current.M[2][1] << " " << current.M[2][2] << " " << current.M[2][3] << "\n"
+				<< current.M[3][0] << " " << current.M[3][1] << " " << current.M[3][2] << " " << current.M[3][3] << "\n";
+
+			std::cout << "Previous Car Model";
+			Matrix44 prev = opaque_list.back().prev_model;
+
+			std::cout
+				<< prev.M[0][0] << " " << prev.M[0][1] << " " << prev.M[0][2] << " " << prev.M[0][3] << "\n"
+				<< prev.M[1][0] << " " << prev.M[1][1] << " " << prev.M[1][2] << " " << prev.M[1][3] << "\n"
+				<< prev.M[2][0] << " " << prev.M[2][1] << " " << prev.M[2][2] << " " << prev.M[2][3] << "\n"
+				<< prev.M[3][0] << " " << prev.M[3][1] << " " << prev.M[3][2] << " " << prev.M[3][3] << "\n";
+			isCar = false;
+		}*/
 	}
 
 	for (Node* child : node->children) {
@@ -124,15 +172,15 @@ void Renderer::parseSceneEntities(SCN::Scene* scene, Camera* cam) {
 	translucent_list.clear();
 	lights_list.clear();
 
-
 	for (int i = 0; i < scene->entities.size(); i++) {
 		BaseEntity* entity = scene->entities[i];
+		if (entity->name == "car1") isCar = true;
 
 		if (!entity->visible) {
 			continue;
 		}
 
-		// Store Prefab Entitys
+		// Store Prefab Entities
 		// ...
 		//		Store Children Prefab Entities
 
@@ -149,6 +197,9 @@ void Renderer::parseSceneEntities(SCN::Scene* scene, Camera* cam) {
 			lights_list.push_back(l);
 		}
 	}
+
+	isFirstFrame = false;
+
 }
 
 char Renderer::isInsideFrustum(sRenderable* obj, Camera* camera) {
@@ -252,39 +303,53 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 //QUAD:
 	GFX::Mesh* quad = GFX::Mesh::getQuad();
 
-//THE RENDERING MODES:
+//THE RENDERING MODES: we will apply lighting to the lighting_FBO, then we will apply motion blur, and finally we apply a tone mapper.
 
 	if (isPhong) {
-		lighting_FBO->bind();
+		mapper_FBO->bind();
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 		for (sRenderable& call : opaque_list) {
 			if (isInsideFrustum(&call, camera) != CLIP_OUTSIDE) renderMeshWithMaterial(call.model, call.mesh, call.material);
 		}
-		lighting_FBO->unbind();
+		mapper_FBO->unbind();
 	}
 
 	else if (isDeferredPhong || isLightVol || isDeferredCook) {
 	//G-BUFFER:
 		gbuffer->bind();
-		GLenum buffers[] = { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2 };// As we are storing more than one texture
-		glDrawBuffers(3, buffers);
+		GLenum buffers[] = { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2, GL_COLOR_ATTACHMENT3 };// As we are storing more than one texture
+		glDrawBuffers(4, buffers);
 
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT); // Clear textures from prev frame
 		for (sRenderable& call : opaque_list) {
-			if (isInsideFrustum(&call, camera) != CLIP_OUTSIDE) renderGBuffer(call.model, call.mesh, call.material);
+			if (isInsideFrustum(&call, camera) != CLIP_OUTSIDE) renderGBuffer(call.model, call.prev_model, call.mesh, call.material);
 		}
 		gbuffer->unbind();
 
 	//AMBIENT OCCLUSION:
-		//half_ssao_FBO->bind();
-		//glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT); // Clear textures from prev frame
-		//renderAmbientOcclusion(quad);
-		//half_ssao_FBO->unbind();
+		// low res AO:
+		half_ssao_FBO->bind();
+		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT); // Clear textures from prev frame
+		renderAmbientOcclusion(quad);
+		half_ssao_FBO->unbind();
+		// Full res AO:
 		ssao_FBO->bind();
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT); // Clear textures from prev frame
-		//blurFBO(quad);
-		renderAmbientOcclusion(quad);
+		blurFBO(quad);
 		ssao_FBO->unbind();
+
+	//VELOCITY BUFFER Camera and Object:
+		vBufferCam->bind();
+		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT); // Clear textures from prev frame
+		renderVBufferCamera(quad);
+		vBufferCam->unbind();
+
+		vBufferObj->bind();
+		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT); // Clear textures from prev frame
+		for (sRenderable& call : opaque_list) {
+			if (isInsideFrustum(&call, camera) != CLIP_OUTSIDE) renderVBufferObject(call.model, call.prev_model, call.mesh, call.material);
+		}
+		vBufferObj->unbind();
 
 	//LIGHT VOLUMES:
 		if (isLightVol) {
@@ -308,48 +373,44 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 			}
 
 			lighting_FBO->unbind(); //reset rendering to the framebuffer.
-
 			//lighting_FBO->color_textures[0]->toViewport();
-
 		}
-	//DEFERRED COOK-TORRANCE:
-		else if (isDeferredCook) {
-			lighting_FBO->bind();
-			glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-			renderCookDeferred(quad);
-			lighting_FBO->unbind();
-		}
-	//DEFERRED PHONG:
+		//DEFERRED PHONG or COOK-TORRANCE:
 		else {
 			lighting_FBO->bind();
 			glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 			renderQuadMesh(quad);
 			lighting_FBO->unbind();
 		}
+		mapper_FBO->bind();
+		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+		applyMotonBlur(quad);
+		mapper_FBO->unbind();
 	}
-
 	else { //if isCook == True
-		lighting_FBO->bind();
+		mapper_FBO->bind();
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 		for (sRenderable call : opaque_list) {
 			if (isInsideFrustum(&call, camera) != CLIP_OUTSIDE) renderCook(call.model, call.mesh, call.material);
 		}
-		lighting_FBO->unbind();
+		mapper_FBO->unbind();
 	}
 
-	//computeLumStats();
-	//renderTonemapper(quad);
 	NDTonemapper(quad);
+
 	//Only render translucent objects:
 	//glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-	// At the end, render the translucent objects:
-	/*if (!isLightVol) {
+	//At the end, render the translucent objects:
+	if (!isLightVol) {
 		for (sRenderable call : translucent_list) {
 			if (isInsideFrustum(&call, camera) != CLIP_OUTSIDE) renderMeshWithMaterial(call.model, call.mesh, call.material);
 		}
-	}*/
+	}
 
+	//vBufferObj->color_textures[0]->toViewport();
+	//sotre previous camera.
+	prev_camera = *camera;
 }
 
 void Renderer::renderCook(const Matrix44 model, GFX::Mesh* mesh, SCN::Material* material)
@@ -367,9 +428,6 @@ void Renderer::renderCook(const Matrix44 model, GFX::Mesh* mesh, SCN::Material* 
 
 	//chose a shader
 	shader = GFX::Shader::Get("phong_cook");
-
-
-	assert(glGetError() == GL_NO_ERROR);
 
 	//no shader? then nothing to render
 	if (!shader)
@@ -405,14 +463,6 @@ void Renderer::renderCook(const Matrix44 model, GFX::Mesh* mesh, SCN::Material* 
 	shader->setUniform("u_shadowmaps[0]", fbos[0]->depth_texture, 3);
 	shader->setUniform("u_shadowmaps[1]", fbos[1]->depth_texture, 4);
 	shader->setMatrix44Array("u_shadow_vps", shadow_vps, MAX_SHADOWS);
-
-	//Passem les components roughness and metalic directament del material de cada element
-	if (material->textures[3].texture) {
-		shader->setTexture("u_MetalicRoughness", material->textures[3].texture, 5);
-	}
-	else {
-		shader->setTexture("u_MetalicRoughness", GFX::Texture::getWhiteTexture(), 5);
-	}
 
 	// Render just the verticies as a wireframe
 	if (render_wireframe)
@@ -657,8 +707,6 @@ void Renderer::renderPlain(Camera* light_cam, const Matrix44 model, GFX::Mesh* m
 	//chose a shader
 	shader = GFX::Shader::Get("plain");
 
-	assert(glGetError() == GL_NO_ERROR);
-
 	//no shader? then nothing to render
 	if (!shader)
 		return;
@@ -689,7 +737,7 @@ void Renderer::renderPlain(Camera* light_cam, const Matrix44 model, GFX::Mesh* m
 	glFrontFace(GL_CCW);
 }
 
-void Renderer::renderGBuffer(const Matrix44 model, GFX::Mesh* mesh, SCN::Material* material)
+void Renderer::renderGBuffer(const Matrix44 model, const Matrix44 prev_model, GFX::Mesh* mesh, SCN::Material* material)
 {
 	//in case there is nothing to do
 	if (!mesh || !mesh->getNumVertices() || !material)
@@ -718,14 +766,21 @@ void Renderer::renderGBuffer(const Matrix44 model, GFX::Mesh* mesh, SCN::Materia
 
 	material->bind(shader);
 
-//For the basic.vs
-	//upload uniforms
+	//For the basic.vs
 	shader->setUniform("u_model", model);
+	shader->setUniform("u_prev_viewprojection", camera->viewprojection_matrix); // needed for per-object motion blur
+	shader->setUniform("u_prev_model", prev_model);
 
 	// Upload camera uniforms
 	shader->setUniform("u_viewprojection", camera->viewprojection_matrix);
 	shader->setUniform("u_camera_pos", camera->eye);
 	shader->setUniform("u_model", model);
+	
+	float delta_time = 1.0f / app->fps;
+	shader->setUniform("u_delta_time", delta_time);
+	shader->setUniform("u_exposure", 0.5f*delta_time);
+	shader->setUniform("u_viewport_size", vec2(WIDTH, HEIGHT));
+	shader->setUniform("u_max_velocity", 32.0f);
 
 	//do the draw call that renders the mesh into the screen
 	mesh->render(GL_TRIANGLES);
@@ -862,12 +917,9 @@ void Renderer::renderQuadMesh(GFX::Mesh* mesh)
 
 	glEnable(GL_DEPTH_TEST);
 
-	//chose a shader
-	shader = GFX::Shader::Get("deferred_phong");
-	//shader = GFX::Shader::Get("deferred_cook");
-
-
-	assert(glGetError() == GL_NO_ERROR);
+	//chose a deferred shader (phong or Cook-Torrance)
+	if (isDeferredPhong) shader = GFX::Shader::Get("deferred_phong");
+	else shader = GFX::Shader::Get("deferred_cook");
 
 	//no shader? then nothing to render
 	if (!shader)
@@ -906,75 +958,8 @@ void Renderer::renderQuadMesh(GFX::Mesh* mesh)
 	shader->setTexture("u_gbuffer_depth", gbuffer->depth_texture, 6);
 	shader->setTexture("u_gbuffer_metallic_roughness", gbuffer->color_textures[2], 7);
 
-	// Render just the verticies as a wireframe
-	if (render_wireframe)
-		glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
-
-	//do the draw call that renders the mesh into the screen
-	mesh->render(GL_TRIANGLES);
-
-	//disable shader
-	shader->disable();
-
-	//set the render state as it was before to avoid problems with future renders
-	glDisable(GL_BLEND);
-	glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-}
-
-void Renderer::renderCookDeferred(GFX::Mesh* mesh)
-{
-	//in case there is nothing to do
-	if (!mesh || !mesh->getNumVertices())
-		return;
-	assert(glGetError() == GL_NO_ERROR);
-
-	//define locals to simplify coding
-	GFX::Shader* shader = NULL;
-	Camera* camera = Camera::current;
-
-	glEnable(GL_DEPTH_TEST);
-
-	//chose a shader
-	shader = GFX::Shader::Get("deferred_cook");
-
-	assert(glGetError() == GL_NO_ERROR);
-
-	//no shader? then nothing to render
-	if (!shader)
-		return;
-	shader->enable();
-
-	//UPLOAD UNIFORMS:
-		// Upload camera uniforms
-	shader->setUniform("u_inv_viewprojection", camera->inverse_viewprojection_matrix);
-	shader->setUniform("u_camera_pos", camera->eye);
-
-	// Upload time, for cool shader effects
-	float t = getTime();
-	shader->setUniform("u_time", t);
-
-	// Upload light uniforms
-	shader->setUniform("u_ambient_light", scene->ambient_light);
-	shader->setUniform("u_num_lights", (int)lights_list.size());
-	shader->setUniform("u_shininess", shininess);
-	shader->setUniform3Array("u_light_pos", (float*)light_pos, MAX_LIGHTS);
-	shader->setUniform1Array("u_intensity", light_intensity, MAX_LIGHTS);
-	shader->setUniform3Array("u_light_color", (float*)light_color, MAX_LIGHTS);
-	shader->setUniform1Array("u_light_type", light_type, MAX_LIGHTS);
-	shader->setUniform3Array("u_light_front", (float*)light_front, MAX_LIGHTS);
-	shader->setUniform2Array("u_light_cone", (float*)light_cone, MAX_LIGHTS);
-
-	// Upload shadowmap uniform
-	shader->setUniform("u_shadow_bias", shadow_bias);
-	shader->setUniform("u_shadowmaps[0]", fbos[0]->depth_texture, 2);
-	shader->setUniform("u_shadowmaps[1]", fbos[1]->depth_texture, 3);
-	shader->setMatrix44Array("u_shadow_vps", shadow_vps, MAX_SHADOWS);
-
-	// Bind the GBuffers
-	shader->setTexture("u_gbuffer_color", gbuffer->color_textures[0], 4);
-	shader->setTexture("u_gbuffer_normal", gbuffer->color_textures[1], 5);
-	shader->setTexture("u_gbuffer_depth", gbuffer->depth_texture, 6);
-	shader->setTexture("u_gbuffer_metallic_roughness", gbuffer->color_textures[2], 7);
+	// Ambient Occlusion:
+	shader->setTexture("u_ambient_occlusion", ssao_FBO->color_textures[0], 8);
 
 	// Render just the verticies as a wireframe
 	if (render_wireframe)
@@ -1019,7 +1004,7 @@ void Renderer::renderAmbientOcclusion(GFX::Mesh* mesh)
 		ao_sample_points = generateSpherePoints(sample_count, 1.0, hemi); //generate random samples inside sphere of radius 1
 	}
 
-	shader->setUniform("u_res_inv", vec2(1.0f/ssao_FBO->color_textures[0]->width, 1.0f/ssao_FBO->color_textures[0]->height));
+	shader->setUniform("u_res_inv", vec2(1.0f/half_ssao_FBO->color_textures[0]->width, 1.0f/half_ssao_FBO->color_textures[0]->height));
 	shader->setUniform("u_gbuffer_depth", gbuffer->depth_texture, 0);
 	shader->setUniform("u_gbuffer_normal", gbuffer->color_textures[1], 1);
 	shader->setUniform("u_gbuffer_metallic_roughness", gbuffer->color_textures[2], 2);
@@ -1062,7 +1047,7 @@ void Renderer::blurFBO(GFX::Mesh* mesh)
 	glEnable(GL_DEPTH_TEST);
 
 	//chose a shader
-	shader = GFX::Shader::Get("ambient_occlusion");
+	shader = GFX::Shader::Get("blur");
 
 	assert(glGetError() == GL_NO_ERROR);
 
@@ -1072,7 +1057,9 @@ void Renderer::blurFBO(GFX::Mesh* mesh)
 	shader->enable();
 
 	shader->setUniform("u_input_texture", half_ssao_FBO->color_textures[0], 0);
+	//shader->setUniform("u_texture_size_inv", vec2(1.0f / WIDTH, 1.0f / HEIGHT));
 	shader->setUniform("u_texture_size_inv", vec2(1.0f / half_ssao_FBO->color_textures[0]->width, 1.0f / half_ssao_FBO->color_textures[0]->height));
+
 
 	mesh->render(GL_TRIANGLES);
 
@@ -1090,8 +1077,9 @@ void Renderer::computeLumStats()
 	// bind the HDR lighting texture:
 	lighting_FBO->color_textures[0]->bind();
 	glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_FLOAT, pixels.data());
+	glBindTexture(GL_TEXTURE_2D, 0);
 
-	float total_lum = 0.0f;
+	/*float total_lum = 0.0f;
 	float max_lum = 0.0f;
 
 	for (int i = 0; i < WIDTH * HEIGHT; i++) {
@@ -1105,7 +1093,42 @@ void Renderer::computeLumStats()
 
 	float average_lum = total_lum / (WIDTH * HEIGHT);
 	tm_average_lum = average_lum;
-	tm_lumwhite2 = max_lum;	
+	tm_lumwhite2 = max_lum;	*/
+
+	double total_log_lum = 0.0;
+	float max_lum = 0.0f;
+	const float epsilon = 0.0001f; // Avoid log(0)
+
+	for (int i = 0; i < WIDTH * HEIGHT; i++) {
+		float r = pixels[i * 4 + 0];
+		float g = pixels[i * 4 + 1];
+		float b = pixels[i * 4 + 2];
+
+		r = max(0.0f, r);
+		g = max(0.0f, g);
+		b = max(0.0f, b);
+
+		float lum = 0.2126f * r + 0.7152f * g + 0.0722f * b;
+
+		total_log_lum += std::log(lum + epsilon);
+
+		max_lum = max(max_lum, lum);
+	}
+
+	float average_lum = std::exp(total_log_lum / (WIDTH * HEIGHT));
+
+	tm_average_lum = max(0.001f, average_lum);
+
+	float tm_scale = 0.18f;
+
+	float l_white = (tm_scale / tm_average_lum) * max_lum;
+
+	tm_lumwhite2 = l_white * l_white;
+
+	if (tm_lumwhite2 < 0.001f) {
+		tm_lumwhite2 = 11.11f;
+	}
+
 }
 
 void Renderer::renderTonemapper(GFX::Mesh* mesh)
@@ -1117,7 +1140,7 @@ void Renderer::renderTonemapper(GFX::Mesh* mesh)
 
 	//glDisable(GL_DEPTH_TEST); //No necessitem compara profunditats per res
 	//glDepthMask(GL_FALSE);
-	glDisable(GL_BLEND); //Si està activat els resultats es barrejaran amb els de la pantalla 
+	glDisable(GL_BLEND); //Si estÃ  activat els resultats es barrejaran amb els de la pantalla 
 
 	shader->enable();
 	shader->setUniform("u_texture", lighting_FBO->color_textures[0], 0);
@@ -1136,18 +1159,19 @@ void Renderer::renderTonemapper(GFX::Mesh* mesh)
 
 void Renderer::NDTonemapper(GFX::Mesh* mesh)
 {
-	if (!mesh || !mesh->getNumVertices()) return;
+	if (!mesh || !mesh->getNumVertices()) return; 
 
 	GFX::Shader* shader = GFX::Shader::Get("tonemapperND");
 	if (!shader) return;
 
 	//glDisable(GL_DEPTH_TEST); //No necessitem compara profunditats per res
 	//glDepthMask(GL_FALSE);
-	glDisable(GL_BLEND); //Si està activat els resultats es barrejaran amb els de la pantalla 
+	glDisable(GL_BLEND); //Si estÃ  activat els resultats es barrejaran amb els de la pantalla 
 
 	shader->enable();
-	shader->setUniform("u_texture", lighting_FBO->color_textures[0], 0);
-	shader->setUniform("u_depth", lighting_FBO->depth_texture, 1);
+	shader->setUniform("u_texture", mapper_FBO->color_textures[0], 0);
+	shader->setUniform("u_depth", mapper_FBO->depth_texture, 1);
+	shader->setUniform("isTonemapper", isTonemapper);
 	
 	mesh->render(GL_TRIANGLES);
 	shader->disable();
@@ -1156,7 +1180,167 @@ void Renderer::NDTonemapper(GFX::Mesh* mesh)
 	glDepthMask(GL_TRUE);
 }
 
+void Renderer::finalRender(GFX::Mesh* mesh) {
+	//in case there is nothing to do
+	if (!mesh || !mesh->getNumVertices() )
+		return;
+	assert(glGetError() == GL_NO_ERROR);
 
+	//define locals to simplify coding
+	GFX::Shader* shader = NULL;
+
+	glEnable(GL_DEPTH_TEST);
+
+	//chose a shader
+	shader = GFX::Shader::Get("render_screen");
+
+	assert(glGetError() == GL_NO_ERROR);
+
+	//no shader? then nothing to render
+	if (!shader)
+		return;
+	shader->enable();
+
+	shader->setUniform("u_texture", gbuffer->color_textures[0], 0);
+	shader->setUniform("u_texture", gbuffer->depth_texture, 1);
+
+	//do the draw call that renders the mesh into the screen
+	mesh->render(GL_TRIANGLES);
+
+	//disable shader
+	shader->disable();
+
+	//set the render state as it was before to avoid problems with future renders
+	glDisable(GL_BLEND);
+	glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+}
+
+void Renderer::applyMotonBlur(GFX::Mesh* mesh) {
+
+	GFX::Shader* shader;
+	if (isCameraBlur) shader = GFX::Shader::Get("camera_motion_blur");
+	else shader = GFX::Shader::Get("object_motion_blur");
+	
+	if (!shader) return;
+
+	glDisable(GL_BLEND);
+
+	Camera* camera = Camera::current;
+	Matrix44 currentToPrev = prev_camera.viewprojection_matrix * camera->inverse_viewprojection_matrix;
+
+	shader->enable(); 
+
+	shader->setUniform("u_texture", lighting_FBO->color_textures[0], 0);
+	shader->setUniform("u_velocity", vBufferCam->color_textures[0], 1);
+	shader->setUniform("u_depth", lighting_FBO->depth_texture, 2);
+	shader->setUniform("currentFps",app->fps);
+	shader->setUniform("u_currentToPrevMat", currentToPrev);
+	shader->setUniform("nSamples", nSamples);
+	//shader->setUniform("u_res_inv", vec2(1.0f / lighting_FBO->color_textures[0]->width, 1.0f / lighting_FBO->color_textures[0]->height));
+
+	mesh->render(GL_TRIANGLES);
+
+	shader->disable();
+
+	glEnable(GL_DEPTH_TEST);
+	glDepthMask(GL_TRUE);
+}
+
+
+void Renderer::renderVBufferCamera(GFX::Mesh* mesh)
+{
+	//in case there is nothing to do
+	if (!mesh || !mesh->getNumVertices())
+		return;
+	assert(glGetError() == GL_NO_ERROR);
+
+	//define locals to simplify coding
+	GFX::Shader* shader = NULL;
+	Camera* camera = Camera::current;
+
+	glEnable(GL_DEPTH_TEST);
+	glDepthFunc(GL_LESS);
+	glDepthMask(GL_TRUE); //Enable writing to the depth_buffer
+
+
+	//chose a shader
+	shader = GFX::Shader::Get("fill_vbuffer");
+
+	assert(glGetError() == GL_NO_ERROR);
+
+	//no shader? then nothing to render
+	if (!shader)
+		return;
+
+	shader->enable();
+
+	// Upload camera uniforms
+	shader->setUniform("u_depth", gbuffer->depth_texture, 0);
+	shader->setUniform("u_prev_viewprojection", prev_camera.viewprojection_matrix);
+	shader->setUniform("u_inv_viewprojection", camera->inverse_viewprojection_matrix);
+
+	//do the draw call that renders the mesh into the screen
+	mesh->render(GL_TRIANGLES);
+
+	//disable shader
+	shader->disable();
+
+	//set the render state as it was before to avoid problems with future renders
+	glDisable(GL_BLEND);
+	glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+}
+
+void Renderer::renderVBufferObject(const Matrix44 model, const Matrix44 prev_model, GFX::Mesh* mesh, SCN::Material* material)
+{
+	//in case there is nothing to do
+	if (!mesh || !mesh->getNumVertices() || !material)
+		return;
+	assert(glGetError() == GL_NO_ERROR);
+
+	Matrix44 model_c = model;
+	Matrix44 prev_model_c = prev_model;
+	/*if ((model_c.getTranslation() - prev_model_c.getTranslation()).length() > 0.01f) {
+		int i = 0;
+	}*/
+
+	//define locals to simplify coding
+	GFX::Shader* shader = NULL;
+	Camera* camera = Camera::current;
+
+	glEnable(GL_DEPTH_TEST);
+	glDepthFunc(GL_LESS);
+	glDepthMask(GL_TRUE); //Enable writing to the depth_buffer
+
+	//chose a shader
+	shader = GFX::Shader::Get("fill_vbuffer2");
+
+	//no shader? then nothing to render
+	if (!shader)
+		return;
+
+	shader->enable();
+
+	material->bind(shader);
+
+	//For the basic.vs
+	shader->setUniform("u_model", model);
+	shader->setUniform("u_prev_viewprojection", prev_camera.viewprojection_matrix); // needed for per-object motion blur
+	shader->setUniform("u_viewprojection", camera->viewprojection_matrix);
+	shader->setUniform("u_prev_model", prev_model);
+
+	// Upload camera uniforms
+	shader->setUniform("u_camera_pos", camera->eye);
+
+	//do the draw call that renders the mesh into the screen
+	mesh->render(GL_TRIANGLES);
+
+	//disable shader
+	shader->disable();
+
+	//set the render state as it was before to avoid problems with future renders
+	glDisable(GL_BLEND);
+	glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+}
 
 #ifndef SKIP_IMGUI
 
@@ -1168,21 +1352,35 @@ void Renderer::showUI()
 
 	//add here your stuff
 	//...
+	ImGui::TextColored(ImVec4(0.0f, 1.0f, 0.0f, 1.0f), "-------------------");
+	ImGui::TextColored(ImVec4(0.0f, 1.0f, 0.0f, 1.0f), "SHADOWS");
 	ImGui::SliderFloat("Shininess", &shininess, 0.01f, 100.0f);
 	ImGui::SliderFloat("ShadowBias", &shadow_bias, 0.001f, 0.005f);
 	ImGui::Checkbox("ForwardFacingCulling", &ffc);
 	ImGui::Checkbox("RenderLightSpheres", &render_spheres);
 
 	//Ambient Occlusion:
+	ImGui::TextColored(ImVec4(0.0f, 1.0f, 0.0f, 1.0f), "-------------------");
+	ImGui::TextColored(ImVec4(0.0f, 1.0f, 0.0f, 1.0f), "AMBIENT OCCLUSION");
 	ImGui::Checkbox("AmbientOcclusion", &isAO);
 	ImGui::SliderFloat("aoRadius", &ao_radius, 0.01f, 0.09f);
 	ImGui::SliderInt("numPoints", &sample_count, 15, 30);
 	ImGui::Checkbox("Hemisphere", &hemi);
 	ImGui::Checkbox("BakedAO", &isBaked);
 
+	ImGui::TextColored(ImVec4(0.0f, 1.0f, 0.0f, 1.0f), "-------------------");
+
+	ImGui::TextColored(ImVec4(0.0f, 1.0f, 0.0f, 1.0f), "POST PROCESSING FX");
+	ImGui::Checkbox("Tonemapper", &isTonemapper);
+	ImGui::Checkbox("Camera Blur", &isCameraBlur);
+	ImGui::SliderInt("Samples blurVec", &nSamples,2,10);
+	ImGui::SliderFloat("carVelocity", &carVelocity, 0.0, 60.0);
+
 	//To make sure that only on render mode is on at a time:
 	controlRenderMode();
+	ImGui::TextColored(ImVec4(0.0f, 1.0f, 0.0f, 1.0f), "-------------------");
 
+	ImGui::TextColored(ImVec4(0.0f, 1.0f, 0.0f, 1.0f), "RENDERING MODES");
 	ImGui::Checkbox("Phong", &isPhong);
 	ImGui::Checkbox("DeferredPhong", &isDeferredPhong);
 	ImGui::Checkbox("LightVolumes", &isLightVol);

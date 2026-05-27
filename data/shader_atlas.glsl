@@ -17,6 +17,11 @@ ambient_occlusion quad.vs ambient_occlusion.fs
 blur quad.vs blur.fs
 tonemapper quad.vs tonemapper.fs 
 tonemapperND quad.vs tonemapperND.fs
+render_screen quad.vs render_screen.fs
+camera_motion_blur quad.vs camera_motion_blur.fs
+object_motion_blur quad.vs object_motion_blur.fs
+fill_vbuffer quad.vs fill_vbuffer.fs
+fill_vbuffer2 basic.vs fill_vbuffer2.fs
 
 \gamma_functions
 
@@ -239,6 +244,8 @@ uniform vec3 u_camera_pos;
 
 uniform mat4 u_model;
 uniform mat4 u_viewprojection;
+uniform mat4 u_prev_viewprojection;
+uniform mat4 u_prev_model;
 
 //this will store the color for the pixel shader
 out vec3 v_position;
@@ -246,6 +253,8 @@ out vec3 v_world_position;
 out vec3 v_normal;
 out vec2 v_uv;
 out vec4 v_color;
+out vec4 v_current_position;
+out vec4 v_prev_position;
 
 uniform float u_time;
 
@@ -257,6 +266,7 @@ void main()
 	//calcule the vertex in object space
 	v_position = a_vertex;
 	v_world_position = (u_model * vec4( v_position, 1.0) ).xyz;
+	vec3 v_prev_world_position = (u_prev_model * vec4( v_position, 1.0) ).xyz;
 	
 	//store the color in the varying var to use it from the pixel shader
 	v_color = a_color;
@@ -264,8 +274,12 @@ void main()
 	//store the texture coordinates
 	v_uv = a_coord;
 
+	//calcule the vertex in objet space at current and previous frames
+	v_prev_position = u_prev_viewprojection * vec4(v_prev_world_position, 1.0);
+	v_current_position = u_viewprojection * vec4(v_world_position, 1.0);
+
 	//calcule the position of the vertex using the matrices
-	gl_Position = u_viewprojection * vec4( v_world_position, 1.0 );
+	gl_Position = v_current_position;
 }
 
 \quad.vs
@@ -542,12 +556,7 @@ void main()
 	}
 
 	phong += k*(diffuse + specular);
-	// FragColor = vec4(gamma(phong), color.a); 
-	// Valor lineal HDR:  2.0  →  gamma()  →  1.0  (guardat al FBO)
-	// Valor lineal HDR:  5.0  →  gamma()  →  1.0  (guardat al FBO)
-	// Valor lineal HDR:  0.5  →  gamma()  →  0.73 (guardat al FBO)
-
-	FragColor = vec4(phong, color.a); //ho deixo en lineal i així és com es guardarà al shader i després ho passo a gamma després del mapper. 
+	FragColor = vec4(phong, color.a);
 }
 
 
@@ -588,8 +597,10 @@ void main()
 #include "gamma_functions"
 
 in vec2 v_uv; // to sample textures
-in vec3 v_normal; // normal in 
+in vec3 v_normal; // normal interpolated
 in vec3 v_world_position;
+in vec4 v_current_position;
+in vec4 v_prev_position;
 
 // Uniforms from mateiral->bind:
 uniform sampler2D u_texture; // color texture
@@ -598,10 +609,17 @@ uniform sampler2D u_MetalicRoughness;
 uniform float u_alpha_cutoff;
 uniform vec4 u_color;
 
+// Uniforms motion blur:
+uniform float u_delta_time;
+uniform float u_exposure;
+uniform vec2 u_viewport_size;
+uniform float u_max_velocity;
+
 // Replace out vec4 FragColor with:
 layout(location = 0) out vec4 gbuffer_albedo; // store color info here
 layout(location = 1) out vec4 gbuffer_normal_mat; // store normal info here
 layout(location = 2) out vec4 gbuffer_metallic_roughness; // store metallic and roughness info here
+layout(location = 3) out vec4 gbuffer_velocity; // store velocity buffer
 
 void main()
 {
@@ -611,16 +629,31 @@ void main()
 	if(color.a < u_alpha_cutoff) 
 		discard;
 
-	vec3 nm_color = normalize((texture(u_normalmap, v_uv).xyz * 2.0 - 1.0)); //color sampled from the normalmap converted to a range [-1,1]
-	vec3 N = perturbNormal(normalize(v_normal), v_world_position, v_uv, nm_color); // rarnge [-1, 1]
+	vec3 nm_color = texture(u_normalmap, v_uv).xyz * 2.0 - 1.0; //color sampled from the normalmap converted to a range [-1,1]
+	vec3 N = normalize(perturbNormal(normalize(v_normal), v_world_position, v_uv, nm_color)); // rarnge [-1, 1]
 	N = 0.5 * N + 0.5; // to texture range [0, 1]
 	vec4 normal = vec4(N, 1.0); // if alpha = 0 -> transparent
-	gbuffer_albedo = vec4(gamma(color.rgb), color.a);
+	gbuffer_albedo = vec4(color.rgb, color.a); //save color in linear space. 
 	gbuffer_normal_mat = normal;
 
 	//METALNESS PARAMETER
 	vec4 metallic_roughness = texture(u_MetalicRoughness, v_uv);
 	gbuffer_metallic_roughness = metallic_roughness;
+
+	//VELOCITY BUFFER
+	vec2 a = (v_current_position.xy / v_current_position.w); // [-1, 1]
+	vec2 b = (v_prev_position.xy / v_prev_position.w);
+	vec2 velocity = (a - b) * 0.5; // texture coord's -> + 0.5 cancels out
+	// velocity *= (u_exposure / max(u_delta_time, 0.0001));
+	// velocity *= u_viewport_size * 0.5;
+	// // Clamp very large velocities
+	// float len = length(velocity);
+	// velocity /= max(1.0, len / u_max_velocity);
+
+	// // Optional encoding scale
+	// velocity *= 0.5;
+
+	gbuffer_velocity = vec4(velocity, 0.0, 1.0); 
 }
 
 //-------------------------------------------------------------------------//
@@ -665,7 +698,7 @@ uniform sampler2D u_gbuffer_color;
 uniform sampler2D u_gbuffer_normal;
 uniform sampler2D u_gbuffer_depth;
 
-//AO:
+//Ambient Occlusion:
 uniform sampler2D u_ambient_occlusion;
 
 // Color Output:
@@ -687,13 +720,12 @@ void main()
 	vec3 N = normalize(normal);
 
 // Fragment's initial color -> without lighting
-	vec4 color = texture(u_gbuffer_color, v_uv);
-	vec3 k = degamma(color.rgb); //k = k_a = k_s = k_d
+	vec4 color = texture(u_gbuffer_color, v_uv); //Already in linear space. 
+	vec3 k = color.rgb; //k = k_a = k_s = k_d
 
 //AMBIENT LIGHT:
-
 	float ao_term = texture(u_ambient_occlusion, v_uv).r;
-	vec3 phong = degamma(u_ambient_light) * k * ao_term; //ambient occlusion term
+	vec3 phong = degamma(u_ambient_light) * k * ao_term;
 
 	// VARIABLES:
 	vec3 diffuse = vec3(0.0);
@@ -727,8 +759,7 @@ void main()
 		specular += res.s;
 	}
 	phong += k*(diffuse + specular);
-	// FragColor = vec4(gamma(phong), color.a);
-	FragColor = vec4(phong, color.a); //ho deixo en lineal i així és com es guardarà al shader i després ho paso a gamma després del mapper.
+	FragColor = vec4(phong, color.a);
 }
 
 //-------------------------------------------------------------------------//
@@ -778,7 +809,7 @@ void main()
 	float depth = texture(u_gbuffer_depth, v_uv).r; // texture range [0,1] stored in first channel
 	if (depth >= 1.0) discard; // If the depth is so large then it belongs to the background or skybox!
 	vec4 color = texture(u_gbuffer_color, v_uv); //no need for alpha cutoff already done when filling the gbuffer
-	vec3 k = degamma(color.rgb);
+	vec3 k = color.rgb;//already in linear space
 
 // Compute fragment world position: 
 	float depth_clip = 2.0 * depth - 1.0; // clip space range [-1, 1]
@@ -803,8 +834,7 @@ void main()
 
 //AMBIENT + DIRECTIONAL W/ SHADOWS:
 	vec3 phong = k*(ao_light + res.d + res.s);
-	// FragColor = vec4(gamma(phong), color.a);
-	FragColor = vec4(phong, color.a); //ho deixo en lineal i així és com es guardarà al shader i después ho paso a gamma después del mapper.
+	FragColor = vec4(phong, color.a);
 }
 
 //-------------------------------------------------------------------------//
@@ -870,8 +900,8 @@ void main()
 	vec3 N = normalize(normal);
 
 // Fragment's initial color -> without lighting
-	vec4 color = texture(u_gbuffer_color, screen_size_uv);
-	vec3 k = degamma(color.rgb); //k = k_a = k_s = k_d
+	vec4 color = texture(u_gbuffer_color, screen_size_uv); //already in linear space. 
+	vec3 k = color.rgb; //k = k_a = k_s = k_d
 	
 // Define some variables:
 	diffuseSpecular res;
@@ -891,8 +921,7 @@ void main()
 	
 	phong = k*(res.d + res.s);
 
-	// FragColor = vec4(gamma(phong), color.a);
-	FragColor = vec4(phong, color.a); //ho deixo en lineal i així és com es guardarà al shader i después ho paso a gamma después del mapper.
+	FragColor = vec4(phong, color.a);
 }
 
 
@@ -948,7 +977,7 @@ uniform sampler2D u_gbuffer_normal;
 uniform sampler2D u_gbuffer_depth;
 uniform sampler2D u_gbuffer_metallic_roughness;
 
-//AO:
+//Ambient Occlusion:
 uniform sampler2D u_ambient_occlusion;
 
 // Color Output:
@@ -976,14 +1005,14 @@ void main()
 
 // Fragment's initial color -> without lighting
 	vec4 color = texture(u_gbuffer_color, v_uv);
-	vec3 k = degamma(color.rgb); //k = k_a = k_s = k_d
+	vec3 k = color.rgb; //k = k_a = k_s = k_d
 
 // Define some variables:
  	vec3 L_vec, L, light_intensity, diffuse_contrib, R, V, specular_contrib, D;
 	float d, attenuation, RV, LD, alpha_max, alpha_min, attenuation_distance, attenuation_angle, shadow;
 
 //AMBIENT LIGHT:
-	float ao_term = texture(u_ambient_occlusion, v_uv).r; // sample ambient occlusion texture
+	float ao_term = texture(u_ambient_occlusion, v_uv).r;
 	vec3 BRDFcolor = degamma(u_ambient_light) * k * ao_term;
 	vec3 outgoing_light = vec3(0.0);
 
@@ -1021,8 +1050,7 @@ void main()
 			s += 1;
 
 		//Li(p,L)
-			L_vec = u_light_pos[i] - world_pos;
-			L = normalize(L_vec);
+			L = normalize(u_light_front[i]);
 			V = normalize(u_camera_pos - world_pos);
 
 			float LN = clamp(dot(L,N), 0.0, 1.0);
@@ -1062,13 +1090,12 @@ void main()
 		BRDFcolor += outgoing_light;
 	}
 
-	// FragColor = vec4(gamma(BRDFcolor), color.a);
-	FragColor = vec4(BRDFcolor, color.a); //ho deixo en lineal i així és com se guardarà al shader y después lo paso a gamma después del mapper.
+	FragColor = vec4(BRDFcolor, color.a);
 }
 
 
 //-------------------------------------------------------------------------//
-//				 COOK-TORRANCE BRDF MODEL phong RENDERING				   //
+//				 COOK-TORRANCE BRDF MODEL SINGLE PASS RENDERING			   //
 //-------------------------------------------------------------------------//
 
 \phong_cook.fs
@@ -1118,6 +1145,8 @@ uniform sampler2D u_normalmap;
 
 //Metalic Texture
 uniform sampler2D u_MetalicRoughness; 
+
+
 
 out vec4 FragColor;
 
@@ -1219,8 +1248,7 @@ void main()
 		}
 	}
 
-	// FragColor = vec4(gamma(BRDFcolor), color.a);
-	FragColor = vec4(BRDFcolor, color.a); //ho deixo en lineal i así es como se guardarà al shader y después lo paso a gamma después del mapper.
+	FragColor = vec4(BRDFcolor, color.a);
 	// FragColor = vec4(metallic, roughness, 0.0, 1.0); //Em surt groc per tant llegeixo sermpre textures blanques. 
 }
 
@@ -1252,7 +1280,7 @@ out vec4 FragColor;
 
 void main()
 {
-	//if there is no AO. 
+	//White texture if no AO == do nothing
 	if(!isAO) {
 		FragColor = vec4(1.0);
 		return;
@@ -1267,7 +1295,7 @@ void main()
 		return;
 	}
 
-	vec3 N = normalize(texture(u_gbuffer_normal, uv).xyz *2.0 -1.0); //les necessito en coordenades de [-1,1] que son 
+	vec3 N = normalize(texture(u_gbuffer_normal, uv).xyz * 2.0 - 1.0); //les necessito en coordenades de [-1,1] que son 
 	N = (u_view_mat * vec4(N, 0.0)).xyz; // we want to rotate a direction so we are not interested in translations -> last coord 0.0.
 	//ara la N en view space. 
 
@@ -1280,27 +1308,26 @@ void main()
 	vec4 clip_coords = vec4(uv.x, uv.y, depth, 1.0); // homogeneous coords
 	clip_coords.xyz = clip_coords.xyz * 2.0 - 1.0; //convert to NDC screen and depth sapce [0,1] --> [-1,1]
 
-	//la view matrix pasa de world a camera. Inverse de camera a world. 
-	vec4 view_sample_origin = u_inv_proj_mat * clip_coords; // recover the original 3D point in camera sapce, po
+	vec4 view_sample_origin = u_inv_proj_mat * clip_coords; // recover the original 3D point in camera sapce
 	view_sample_origin /= view_sample_origin.w; // dehomogenize
 
 	float ao_term = 0.0;
 	for (int i = 0; i < u_sample_count; i++) {
 		vec3 view_sample = u_sample_pos[i];
 		if (isHemi) {
-			if (view_sample.z < 0){ //to avoid fenerating again random points. 
+			if (view_sample.z < 0){ // to avoid having to generate again the random points
 				view_sample.z *= -1.0;
 			}
-			view_sample = rotmat * view_sample; //rotem el punt per a que 
+			view_sample = rotmat * view_sample;
 		}
 		view_sample *= u_sample_radius;
 		view_sample += view_sample_origin.xyz; // sphere is now centered at the 3D point in camera space previously computed
 
 		vec4 proj_sample = u_proj_mat * vec4(view_sample, 1.0); // the projection matrix is 4x4 (View space to Clip space) [-1,1]
-		proj_sample /= proj_sample.w; //Normalitzem. 
+		proj_sample /= proj_sample.w;
 		proj_sample = clamp(proj_sample, -1.0, 1.0);
 
-		vec2 sample_uv =proj_sample.xy * 0.5 + 0.5; // texture range [0,1]
+		vec2 sample_uv = proj_sample.xy * 0.5 + 0.5; // texture range [0,1]
 		float sample_depth = texture(u_gbuffer_depth, sample_uv).r; // [0,1]
 		sample_depth = sample_depth * 2.0 - 1.0; // to [-1,1]
 
@@ -1328,44 +1355,18 @@ uniform vec2 u_texture_size_inv;
 out vec4 FragColor;
 
 // 33x33 kernel
-const int M = 16; 		 // half_window = 16
-const int N = 2 * M + 1; // window_size = 33
+const int M = 3; 		 // half_window = 3
+const int N = 2 * M + 1; // window_size = 7
 
 // sigma = 10
 const float coeffs[N] = float[N](
-	0.012318109844189502,
-	0.014381474814203989,
-	0.016623532195728208,
-	0.019024086115486723,
-	0.02155484948872149,
-	0.02417948052890078,
-	0.02685404941667096,
-	0.0295279624870386,
-	0.03214534135442581,
-	0.03464682117793548,
-	0.0369716985390341,
-	0.039060328279673276,
-	0.040856643282313365,
-	0.04231065439216247,
-	0.043380781642569775,
-	0.044035873841196206,
-	0.04425662519949865,
-	0.044035873841196206,
-	0.043380781642569775,
-	0.04231065439216247,
-	0.040856643282313365,
-	0.039060328279673276,
-	0.0369716985390341,
-	0.03464682117793548,
-	0.03214534135442581,
-	0.0295279624870386,
-	0.02685404941667096,
-	0.02417948052890078,
-	0.02155484948872149,
-	0.019024086115486723,
-	0.016623532195728208,
-	0.014381474814203989,
-	0.012318109844189502
+	0.00443184, // i = -3
+    0.05399097, // i = -2
+    0.24197072, // i = -1
+    0.39894228, // i =  0 (Centro)
+    0.24197072, // i =  1
+    0.05399097, // i =  2
+    0.00443184  // i =  3
 );
 
 void main()
@@ -1429,8 +1430,7 @@ in vec2 v_uv;
 
 uniform sampler2D u_texture;
 uniform sampler2D u_depth;
-
-// uniform bool isTonemapper;
+uniform bool isTonemapper;
 
 out vec4 FragColor;
 
@@ -1454,33 +1454,185 @@ void main()
 		discard;
 	}
     
-	// if(!isTonemapper) {
-	// 	FragColor = gamma(texture(u_texture, v_uv));
-	// 	return;
-	// }
-		// vec3 color = degamma(texture(u_texture, v_uv).rgb);
-	vec3 color = texture(u_texture, v_uv).rgb; //si faig degamma perdo la informació HDR (que son valors per sobre de 1.0, queden clipejats abans).
-	// Valor lineal HDR:  2.0  →  gamma()  →  1.0  (guardat al FBO)
-	// Valor lineal HDR:  5.0  →  gamma()  →  1.0  (guardat al FBO)
-	// Valor lineal HDR:  0.5  →  gamma()  →  0.73 (guardat al FBO)
-
+	vec3 color = texture(u_texture, v_uv).rgb; // already sotored in linear
+	if (!isTonemapper) {
+		vec4 out_color = texture(u_texture, v_uv);
+		FragColor = vec4(gamma(out_color.xyz), out_color.a);
+		return;
+	}
+	// vec3 color = texture(u_texture,v_uv).rgb;
     vec3 tonemapped_color = Uncharted2TonemapPartial(color*2.0);
 	vec3 W = vec3(11.2f);
 	vec3 white_scale = vec3(1.0f) / Uncharted2TonemapPartial(W);
+	
+	FragColor = vec4(gamma(tonemapped_color * white_scale), 1.0);
+}
 
-	FragColor = vec4(gamma(tonemapped_color * white_scale), 1.0); //ho torno a espai gama ara si, després de fer totes les operacions en lineal 
+\render_screen.fs
 
-	// // DEBUG: mostra si hi ha valors HDR (>1.0)
-    // if (color.r > 1.0 || color.g > 1.0 || color.b > 1.0) {
-    //     FragColor = vec4(1.0, 0.0, 0.0, 1.0); // vermell = zones que son més grans que 1.0 
-    // } else {
-    //     FragColor = vec4(0.0, 1.0, 0.0, 1.0); // verd = zones que son més petites que 1.0
-    // }
+#version 330 core
+#include "gamma_functions"
 
-	// // DEBUG: mostra si hi ha valors HDR (>1.0)
-    // if (gamma(tonemapped_color * white_scale).r > 1.0 || gamma(tonemapped_color * white_scale).g > 1.0 || gamma(tonemapped_color * white_scale).b > 1.0) {
-    //     FragColor = vec4(1.0, 0.0, 0.0, 1.0); // vermell = no s'ha clipejat
-    // } else {
-    //     FragColor = vec4(0.0, 1.0, 0.0, 1.0); // verd = s'ha clipejat
-    // }
+in vec2 v_uv;
+uniform sampler2D u_texture;
+uniform sampler2D u_depth;
+out vec4 FragColor;
+
+void main()
+{
+	float depth = texture(u_depth, v_uv).r;
+	// discard if skybox
+	if (depth >= 1.0) {
+		discard;
+	}
+
+	FragColor = vec4(gamma(texture(u_texture, v_uv).xyz), 1.0);
+}
+
+\camera_motion_blur.fs
+
+#version 330 core
+
+#include "gamma_functions"
+
+in vec2 v_uv;
+
+uniform mat4 u_currentToPrevMat; // prev_viewproj * inv_viewproj
+uniform sampler2D u_texture;
+uniform sampler2D u_depth;
+uniform sampler2D u_velocity;
+uniform int currentFps;
+uniform int nSamples;
+
+out vec4 FragColor;
+
+void main(){
+	float depth = texture(u_depth, v_uv).r;
+	if (depth >= 1.0) {
+		discard;
+	}
+	// float depth_clip = 2.0 * depth - 1.0; // clip space range [-1, 1]
+	// vec2 uv_clip = 2.0 * v_uv - 1.0;
+
+	// //get previous screen space position
+	// vec4 clip_coords = vec4(uv_clip.x, uv_clip.y, depth_clip, 1.0);
+	// vec4 not_norm_screen_prev_pos = u_currentToPrevMat * clip_coords; // from clip space to world space in homogeneous coord's
+	// vec3 previous = not_norm_screen_prev_pos.xyz / not_norm_screen_prev_pos.w; // convert to cartesian coord's
+
+	// previous = previous * 0.5 + 0.5; // to [0,1], texture coordinates
+
+	// vec2 blur_vector = previous.xy - v_uv; // range [-1, 1]
+
+	// vec2 normal = normalize(blur_vector);
+	// // Map values to be between 0 and 1.
+	// normal.x = (normal.x + 1) * 0.5;
+	// normal.y = (normal.y + 1) * 0.5;
+	// // Convert to array of color values.
+	// FragColor = vec4(normal.x, normal.y, 0.0, 1.0);
+	// return;
+
+	vec2 blur_vector = texture(u_velocity, v_uv).rg;
+
+	float blurScale = currentFps / 60.0;
+
+	// perform blur:
+	vec4 result = texture(u_texture, v_uv);
+	for (int i = 1; i < nSamples; ++i) {
+	// get offset in range [-0.5, 0.5]:
+    	vec2 offset = blurScale * blur_vector * (float(i) / float(nSamples - 1) - 0.5);
+  
+	// sample & add to result:
+    	result += texture(u_texture, v_uv + offset); // already in linear
+   	}
+ 
+	result /= float(nSamples);
+	FragColor = vec4(result.xyz, result.a);
+}
+
+
+\object_motion_blur.fs
+
+#version 330 core
+#include "gamma_functions"
+
+in vec2 v_uv;
+
+const int MAX_SAMPLES = 10;
+
+uniform sampler2D u_texture;
+uniform sampler2D u_velocity;
+uniform sampler2D u_depth;
+uniform int currentFps;
+// uniform int nSamples;
+
+out vec4 FragColor;
+
+void main() {
+
+	float depth = texture(u_depth, v_uv).r;
+	if (depth >= 1.0) {
+		discard;
+	}
+	vec2 velocity = texture(u_velocity, v_uv).rg;
+	float velocity_scale = currentFps / 60.0; //our target fps is 60
+	vec2 texelSize = 1.0 / vec2(textureSize(u_texture, 0)); // 0: texture size at mipmap level 0 
+	float speed = length(velocity / texelSize);
+  	int nSamples = clamp(int(speed), 1, MAX_SAMPLES);
+
+   	vec4 res = texture(u_texture, v_uv); // already in linear
+   	for (int i = 1; i < nSamples; ++i) {
+    	vec2 offset = velocity * (float(i) / float(nSamples - 1) - 0.5);
+    	res += texture(u_texture, v_uv + offset); 
+   	}
+   	FragColor = res / float(nSamples);
+}
+
+\fill_vbuffer.fs
+
+#version 330 core 
+
+in vec2 v_uv;
+
+uniform sampler2D u_depth;
+uniform mat4 u_inv_viewprojection;
+uniform mat4 u_prev_viewprojection;
+
+out vec2 FragColor;
+
+void main() {
+
+	float depth = texture(u_depth, v_uv).r;
+	if (depth >= 1.0) {
+		discard; //belongs to the background / skybox
+	}
+
+	vec2 clip_coords = v_uv * 2.0 - 1.0; // [-1, 1]
+	vec4 H = vec4(clip_coords, depth, 1.0); // clip space
+	vec4 D = u_inv_viewprojection * H; // world space
+	vec4 world_pos = D / D.w; // dehomogenize
+	vec2 current_pos = H.xy; // [-1, 1]
+	current_pos = 0.5 * current_pos + 0.5; // [0, 1]
+	vec4 prev_clip = u_prev_viewprojection * world_pos; // clip space in prev frame
+	prev_clip /= prev_clip.w; // dehomogenize
+	vec2 prev_pos = 0.5 * prev_clip.xy + 0.5; // [0, 1]
+	//VELOCITY BUFFER
+	vec2 velocity = current_pos.xy - prev_pos.xy;
+	FragColor = velocity;
+}
+
+
+\fill_vbuffer2.fs
+
+#version 330 core
+
+in vec4 v_current_position;
+in vec4 v_prev_position;
+
+out vec2 FragColor;
+
+void main() {
+	vec2 a = v_current_position.xy / v_current_position.w;
+	vec2 b = v_prev_position.xy / v_prev_position.w;
+
+	FragColor = (a - b) * 0.5;
 }

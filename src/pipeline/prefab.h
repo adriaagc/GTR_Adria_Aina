@@ -40,6 +40,7 @@ namespace SCN {
 
 		Matrix44 model;	//the matrix that defines where is the object (in relation to its parent)
 		Matrix44 global_model;	//the matrix that defines where is the object (in relation to the world)
+		Matrix44 prev_global_model;
 
 		BoundingBox aabb; //node bounding box in world space
 
@@ -74,6 +75,14 @@ namespace SCN {
 			else
 				global_model = model;
 			return global_model;
+		}
+
+		Matrix44 getPrevGlobalMatrix(bool fast = false) {
+			if (parent)
+				prev_global_model = model * (fast ? parent->prev_global_model : parent->getPrevGlobalMatrix());
+			else
+				prev_global_model = model;
+			return prev_global_model;
 		}
 
 		bool testRay(const Ray& ray, Vector3f& result, int layers = 0xFF, float max_dist = 3.4e+38F);
