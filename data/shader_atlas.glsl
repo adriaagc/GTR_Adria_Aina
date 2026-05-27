@@ -275,7 +275,7 @@ void main()
 	v_uv = a_coord;
 
 	//calcule the vertex in objet space at current and previous frames
-	v_prev_position = u_prev_viewprojection * vec4(v_prev_world_position, 1.0);
+	v_prev_position = u_viewprojection * vec4(v_prev_world_position, 1.0);
 	v_current_position = u_viewprojection * vec4(v_world_position, 1.0);
 
 	//calcule the position of the vertex using the matrices
@@ -1557,7 +1557,7 @@ void main(){
 
 in vec2 v_uv;
 
-const int MAX_SAMPLES = 10;
+const int MAX_SAMPLES = 100;
 
 uniform sampler2D u_texture;
 uniform sampler2D u_velocity;
@@ -1577,12 +1577,12 @@ void main() {
 	float velocity_scale = currentFps / 60.0; //our target fps is 60
 	vec2 texelSize = 1.0 / vec2(textureSize(u_texture, 0)); // 0: texture size at mipmap level 0 
 	float speed = length(velocity / texelSize);
-  	int nSamples = clamp(int(speed), 1, MAX_SAMPLES);
+  	int nSamples = clamp(int(speed), 1, MAX_SAMPLES); // if the velocity is large then we need more samples (more blur)
 
    	vec4 res = texture(u_texture, v_uv); // already in linear
    	for (int i = 1; i < nSamples; ++i) {
     	vec2 offset = velocity * (float(i) / float(nSamples - 1) - 0.5);
-    	res += texture(u_texture, v_uv + offset); 
+    	res += texture(u_texture, v_uv + offset);
    	}
    	FragColor = res / float(nSamples);
 }

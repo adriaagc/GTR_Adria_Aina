@@ -1231,7 +1231,8 @@ void Renderer::applyMotonBlur(GFX::Mesh* mesh) {
 	shader->enable(); 
 
 	shader->setUniform("u_texture", lighting_FBO->color_textures[0], 0);
-	shader->setUniform("u_velocity", vBufferCam->color_textures[0], 1);
+	if (isCameraBlur) shader->setUniform("u_velocity", vBufferCam->color_textures[0], 1);
+	else shader->setUniform("u_velocity", vBufferObj->color_textures[0], 1);
 	shader->setUniform("u_depth", lighting_FBO->depth_texture, 2);
 	shader->setUniform("currentFps",app->fps);
 	shader->setUniform("u_currentToPrevMat", currentToPrev);
@@ -1299,9 +1300,9 @@ void Renderer::renderVBufferObject(const Matrix44 model, const Matrix44 prev_mod
 
 	Matrix44 model_c = model;
 	Matrix44 prev_model_c = prev_model;
-	/*if ((model_c.getTranslation() - prev_model_c.getTranslation()).length() > 0.01f) {
+	if ((model_c.getTranslation() - prev_model_c.getTranslation()).length() > 0.01f) {
 		int i = 0;
-	}*/
+	}
 
 	//define locals to simplify coding
 	GFX::Shader* shader = NULL;
