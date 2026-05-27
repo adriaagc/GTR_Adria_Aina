@@ -1,4 +1,4 @@
-#pragma once
+
 #include <deque>
 
 
@@ -56,7 +56,4 @@ public:
 	void onMouseButtonUp(SDL_MouseButtonEvent event);
 	bool onKeyDown(SDL_KeyboardEvent event);
 	void onFileDrop(std::string filename, std::string relative, SDL_Event event);
-
-	//movement for the motion blur
-	void CarMovement(double delta_time, Camera* camera);
 };

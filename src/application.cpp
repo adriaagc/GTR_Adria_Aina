@@ -11,7 +11,7 @@ std::vector<vec3> debug_points; //useful
 
 float cam_speed = 1.5;
 
-//SceneEditor* editor = nullptr;
+SceneEditor* editor = nullptr;
 
 Application::Application()
 {
@@ -116,11 +116,6 @@ void Application::update(double seconds_elapsed)
 	{
 		Input::centerMouse();
 	}
-
-	// CAR MOVEMENT: 
-	if (editor)
-		editor->CarMovement(seconds_elapsed, camera);
-
 }
 
 //called to render the GUI from

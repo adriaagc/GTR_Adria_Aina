@@ -6,7 +6,6 @@
 #define APPLICATION_H
 
 #include "litengine.h"
-#include "editor.h"
 
 class Application : public CORE::BaseApplication
 {
@@ -18,8 +17,6 @@ public:
 	SCN::Scene* scene = nullptr;
 	SCN::Renderer* renderer = nullptr;
 	bool render_debug = true;
-	//car movement
-	SceneEditor* editor = nullptr;
 
 	Application();
 
@@ -39,8 +36,6 @@ public:
 	void onGamepadButtonUp(SDL_JoyButtonEvent event);
 	void onResize(int width, int height);
 	void onFileDrop(std::string filename, std::string relative, SDL_Event event );
-
-	
 };
 
 

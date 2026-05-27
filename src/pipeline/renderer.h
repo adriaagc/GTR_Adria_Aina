@@ -3,8 +3,6 @@
 #include "prefab.h"
 
 #include "light.h"
-//motion blur
-#include "../core/core.h"
 
 #define MAX_LIGHTS 4
 #define SHADOW_RES 1024 //square
@@ -39,13 +37,11 @@ namespace SCN {
 			GFX::Mesh* mesh = nullptr;
 			Material* material = nullptr;
 			Matrix44 model;
-			Matrix44 prev_model;
 		};
 
 		std::vector<sRenderable> opaque_list;
 		std::vector<sRenderable> translucent_list;
 
-		bool isCar = false;
 
 	//LIGHTS:
 		std::vector<LightEntity*> lights_list;
@@ -74,8 +70,6 @@ namespace SCN {
 
 		bool* currentRenderMode = &isPhong; //starting mode
 
-		float carVelocity = 7.0f;
-
 
 	//FBOs & shadowmaps
 		//GFX::FBO* fbo;
@@ -93,8 +87,6 @@ namespace SCN {
 
 	//Light Volumes:
 		GFX::FBO* lighting_FBO;
-		GFX::FBO* mapper_FBO;
-
 
 	//Ambient Occlusion:
 		GFX::FBO* ssao_FBO;
@@ -112,16 +104,9 @@ namespace SCN {
 		float tm_average_lum = 0.5f;
 		float tm_lumwhite2 = 1.0f;
 		float tm_igamma = 1.0f / 2.2f;
+
 		bool isTonemapper = false;
 
-	//Motion Blur
-		Camera prev_camera;
-		CORE::BaseApplication* app = CORE::BaseApplication::instance;
-		int nSamples = 7;
-		bool isCameraBlur = true;
-		GFX::FBO* vBufferCam;
-		GFX::FBO* vBufferObj;
-		bool isFirstFrame = true;
 
 		//updated every frame
 		Renderer(const char* shaders_atlas_filename );
@@ -152,12 +137,13 @@ namespace SCN {
 		//to render one mesh given its material and transformation matrix
 		void renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN::Material* material); // const std::string& shaderName
 
-		//Phong or Cook-Torrance with deferred rendering
+		//Phong with deferred rendering
 		void renderQuadMesh(GFX::Mesh* mesh);
+		void renderCookDeferred(GFX::Mesh* mesh);
 
 		//to fill the framebuffer without drawing from the perspective of the light
 		void renderPlain(Camera* light_cam, const Matrix44 model, GFX::Mesh* mesh, SCN::Material* material);
-		void renderGBuffer(const Matrix44 model, const Matrix44 prev_model, GFX::Mesh* mesh, SCN::Material* material);
+		void renderGBuffer(const Matrix44 model, GFX::Mesh* mesh, SCN::Material* material);
 
 		//Light Volumes:
 		void renderAmbient(GFX::Mesh* mesh);
@@ -172,11 +158,6 @@ namespace SCN {
 		void computeLumStats();
 		void renderTonemapper(GFX::Mesh* mesh);
 		void NDTonemapper(GFX::Mesh* mesh);
-
-		void finalRender(GFX::Mesh* mesh);
-		void applyMotonBlur(GFX::Mesh* mesh);
-		void renderVBufferCamera(GFX::Mesh* mesh);
-		void renderVBufferObject(const Matrix44 model, const Matrix44 prev_model, GFX::Mesh* mesh, SCN::Material* material);
 
 
 		void showUI();

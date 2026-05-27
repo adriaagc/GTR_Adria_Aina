@@ -12,7 +12,6 @@ SceneEditor::SceneEditor( SCN::Scene* scene, SCN::Renderer* renderer )
 	camera = nullptr;
 	sidebar_width = 300;
 	show_textures = false;
-
 }
 
 void SceneEditor::renderDebug(Camera* camera)
@@ -771,29 +770,5 @@ void SceneEditor::addPrefab(const char* filename)
 	ent->loadPrefab(filename);
 	SCN::BaseEntity::s_selected = ent;
 	SCN::Node::s_selected = nullptr;
-}
-
-//MOVEMENT FOR THE MOTION BLUR
-void SceneEditor::CarMovement(double delta_time, Camera* camera)
-{
-	SCN::BaseEntity* car = scene->getEntity("car1");
-	if (!car) return;
-
-	static float time = 0.0f; //static becouse we want to keep the value outside the function, until the program is closed. 
-	time += delta_time;
-
-	float speed = renderer->carVelocity;   // velocitat del moviment
-	float amplitude = 1.0f; // distància màxima que recorre
-
-	// sin oscil·la entre -1 i 1, així el cotxe va endavant i endarrere
-	float offset = sin(time * speed) * amplitude;
-
-	// Posició original + offset en l'eix Z (o X si prefereixes)
-	Vector3f base_pos = Vector3f(-0.787f, 0.0f, -0.929f); // posició original del JSON
-	//car->root.model.setTranslation(base_pos.x, base_pos.y, base_pos.z + offset);
-	// Modifica NOMÉS la translació sense tocar escala ni rotació
-	car->root.model.m[12] = base_pos.x;
-	car->root.model.m[13] = base_pos.y;
-	car->root.model.m[14] = base_pos.z + offset;
 }
 
