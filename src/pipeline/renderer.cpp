@@ -408,7 +408,12 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 		}
 	}
 
-	//vBufferObj->color_textures[0]->toViewport();
+	// SHOW VELOCITY BUFFERS
+	if (showVelocity) {
+		if (isCameraBlur) vBufferCam->color_textures[0]->toViewport();
+		else vBufferObj->color_textures[0]->toViewport();
+	}
+	
 	//sotre previous camera.
 	prev_camera = *camera;
 }
@@ -1279,6 +1284,7 @@ void Renderer::renderVBufferCamera(GFX::Mesh* mesh)
 	shader->setUniform("u_depth", gbuffer->depth_texture, 0);
 	shader->setUniform("u_prev_viewprojection", prev_camera.viewprojection_matrix);
 	shader->setUniform("u_inv_viewprojection", camera->inverse_viewprojection_matrix);
+	shader->setUniform("u_show_velocity", showVelocity);
 
 	//do the draw call that renders the mesh into the screen
 	mesh->render(GL_TRIANGLES);
@@ -1373,9 +1379,14 @@ void Renderer::showUI()
 
 	ImGui::TextColored(ImVec4(0.0f, 1.0f, 0.0f, 1.0f), "POST PROCESSING FX");
 	ImGui::Checkbox("Tonemapper", &isTonemapper);
+		
+	ImGui::TextColored(ImVec4(0.0f, 1.0f, 0.0f, 1.0f), "-------------------");
+
+	ImGui::TextColored(ImVec4(0.0f, 1.0f, 0.0f, 1.0f), "MOTION BLUR");;
 	ImGui::Checkbox("Camera Blur", &isCameraBlur);
 	ImGui::SliderInt("Samples blurVec", &nSamples,2,10);
 	ImGui::SliderFloat("carVelocity", &carVelocity, 0.0, 60.0);
+	ImGui::Checkbox("Show Velocity", &showVelocity);
 
 	//To make sure that only on render mode is on at a time:
 	controlRenderMode();
