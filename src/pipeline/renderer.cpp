@@ -137,23 +137,23 @@ void Renderer::parseNode(Node* node){
 			node->prev_global_model = node->getGlobalMatrix();
 		}
 		/*if (isCar) {
-			std::cout << "Current Car Model";
+			std::cout << "\nCurrent Car Model \n";
 			Matrix44 current = opaque_list.back().model;
 
 			std::cout
-				<< current.M[0][0] << " " << current.M[0][1] << " " << current.M[0][2] << " " << current.M[0][3] << "\n"
-				<< current.M[1][0] << " " << current.M[1][1] << " " << current.M[1][2] << " " << current.M[1][3] << "\n"
-				<< current.M[2][0] << " " << current.M[2][1] << " " << current.M[2][2] << " " << current.M[2][3] << "\n"
-				<< current.M[3][0] << " " << current.M[3][1] << " " << current.M[3][2] << " " << current.M[3][3] << "\n";
+				<< current.M[0][0] << " " << current.M[1][0] << " " << current.M[2][0] << " " << current.M[3][0] << "\n"
+				<< current.M[0][1] << " " << current.M[1][1] << " " << current.M[2][1] << " " << current.M[3][1] << "\n"
+				<< current.M[0][2] << " " << current.M[1][2] << " " << current.M[2][2] << " " << current.M[3][2] << "\n"
+				<< current.M[0][3] << " " << current.M[1][3] << " " << current.M[2][3] << " " << current.M[3][3] << "\n";
 
-			std::cout << "Previous Car Model";
+			std::cout << "\nPrevious Car Model \n";
 			Matrix44 prev = opaque_list.back().prev_model;
 
 			std::cout
-				<< prev.M[0][0] << " " << prev.M[0][1] << " " << prev.M[0][2] << " " << prev.M[0][3] << "\n"
-				<< prev.M[1][0] << " " << prev.M[1][1] << " " << prev.M[1][2] << " " << prev.M[1][3] << "\n"
-				<< prev.M[2][0] << " " << prev.M[2][1] << " " << prev.M[2][2] << " " << prev.M[2][3] << "\n"
-				<< prev.M[3][0] << " " << prev.M[3][1] << " " << prev.M[3][2] << " " << prev.M[3][3] << "\n";
+				<< prev.M[0][0] << " " << prev.M[1][0] << " " << prev.M[2][0] << " " << prev.M[3][0] << "\n"
+				<< prev.M[0][1] << " " << prev.M[1][1] << " " << prev.M[2][1] << " " << prev.M[3][1] << "\n"
+				<< prev.M[0][2] << " " << prev.M[1][2] << " " << prev.M[2][2] << " " << prev.M[3][2] << "\n"
+				<< prev.M[0][3] << " " << prev.M[1][3] << " " << prev.M[2][3] << " " << prev.M[3][3] << "\n";
 			isCar = false;
 		}*/
 	}
@@ -1263,6 +1263,7 @@ void Renderer::renderVBufferCamera(GFX::Mesh* mesh)
 	//define locals to simplify coding
 	GFX::Shader* shader = NULL;
 	Camera* camera = Camera::current;
+	Matrix44 currentToPrev = prev_camera.viewprojection_matrix * camera->inverse_viewprojection_matrix;
 
 	glEnable(GL_DEPTH_TEST);
 	glDepthFunc(GL_LESS);
@@ -1286,6 +1287,7 @@ void Renderer::renderVBufferCamera(GFX::Mesh* mesh)
 	shader->setUniform("u_inv_viewprojection", camera->inverse_viewprojection_matrix);
 	shader->setUniform("u_show_velocity", showVelocity);
 	shader->setUniform("u_scalingFactor", scalingFactorVelocity);
+	shader->setUniform("u_currentToPrevious", currentToPrev);
 
 	//do the draw call that renders the mesh into the screen
 	mesh->render(GL_TRIANGLES);
@@ -1340,7 +1342,7 @@ void Renderer::renderVBufferObject(const Matrix44 model, const Matrix44 prev_mod
 	shader->setUniform("u_camera_pos", camera->eye);
 
 	shader->setUniform("u_scalingFactor", scalingFactorVelocity);
-	shader->setUniform("u_show_velocity", showVelocity); 
+	shader->setUniform("u_show_velocity", showVelocity);
 
 	//shader->setUniform("u_scalingFactor", scalingFactorVelocity);
 

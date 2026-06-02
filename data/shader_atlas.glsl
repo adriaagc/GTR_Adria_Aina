@@ -1536,7 +1536,7 @@ void main(){
 	float blurScale = currentFps / 60.0;
 
 	// perform blur:
-	vec4 result = texture(u_texture, v_uv);
+	vec4 result = vec4(0.0); //texture(u_texture, v_uv);
 	for (int i = 1; i < nSamples; ++i) {
 	// get offset in range [-0.5, 0.5]:
     	vec2 offset = blurScale * blur_vector * (float(i) / float(nSamples - 1) - 0.5);
@@ -1581,7 +1581,7 @@ void main() {
 
    	vec4 res = texture(u_texture, v_uv); // already in linear
    	for (int i = 1; i < nSamples; ++i) {
-    	vec2 offset = velocity * (float(i) / float(nSamples - 1) - 0.5);
+    	vec2 offset = velocity_scale * velocity * (float(i) / float(nSamples - 1) - 0.5);
     	res += texture(u_texture, v_uv + offset);
    	}
    	FragColor = res / float(nSamples);
@@ -1596,6 +1596,7 @@ in vec2 v_uv;
 uniform sampler2D u_depth;
 uniform mat4 u_inv_viewprojection;
 uniform mat4 u_prev_viewprojection;
+uniform mat4 u_currentToPrevious;
 
 uniform int u_scalingFactor;
 
@@ -1611,7 +1612,7 @@ void main() {
 	}
 
 	vec2 clip_coords = v_uv * 2.0 - 1.0; // [-1, 1]
-	vec4 H = vec4(clip_coords, depth, 1.0); // clip space
+	vec4 H = vec4(clip_coords, depth*2.0-1.0, 1.0); // clip space
 	vec4 D = u_inv_viewprojection * H; // world space
 	vec4 world_pos = D / D.w; // dehomogenize
 	vec2 current_pos = H.xy; // [-1, 1]
@@ -1623,7 +1624,7 @@ void main() {
 	vec2 velocity = current_pos.xy - prev_pos.xy;
 
 	if(u_show_velocity){
-		FragColor = velocity * u_scalingFactor;
+		FragColor = abs(velocity * u_scalingFactor);
 		return;
 	}
 
@@ -1648,7 +1649,7 @@ void main() {
 	vec2 b = v_prev_position.xy / v_prev_position.w;
 
 	if(u_show_velocity){
-		FragColor = (a - b) * u_scalingFactor;
+		FragColor = abs((a - b) * u_scalingFactor);
 		return;
 	}
 
