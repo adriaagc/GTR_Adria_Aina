@@ -1597,6 +1597,10 @@ uniform sampler2D u_depth;
 uniform mat4 u_inv_viewprojection;
 uniform mat4 u_prev_viewprojection;
 
+uniform int u_scalingFactor;
+
+uniform bool u_show_velocity;
+
 out vec2 FragColor;
 
 void main() {
@@ -1617,6 +1621,12 @@ void main() {
 	vec2 prev_pos = 0.5 * prev_clip.xy + 0.5; // [0, 1]
 	//VELOCITY BUFFER
 	vec2 velocity = current_pos.xy - prev_pos.xy;
+
+	if(u_show_velocity){
+		FragColor = velocity * u_scalingFactor;
+		return;
+	}
+
 	FragColor = velocity;
 }
 
@@ -1628,11 +1638,19 @@ void main() {
 in vec4 v_current_position;
 in vec4 v_prev_position;
 
+uniform int u_scalingFactor;
+uniform bool u_show_velocity;
+
 out vec2 FragColor;
 
 void main() {
 	vec2 a = v_current_position.xy / v_current_position.w;
 	vec2 b = v_prev_position.xy / v_prev_position.w;
 
-	FragColor = (a - b) * 0.5;
+	if(u_show_velocity){
+		FragColor = (a - b) * u_scalingFactor;
+		return;
+	}
+
+	FragColor = (a - b) * 0.5; 
 }

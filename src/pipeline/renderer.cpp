@@ -1285,6 +1285,7 @@ void Renderer::renderVBufferCamera(GFX::Mesh* mesh)
 	shader->setUniform("u_prev_viewprojection", prev_camera.viewprojection_matrix);
 	shader->setUniform("u_inv_viewprojection", camera->inverse_viewprojection_matrix);
 	shader->setUniform("u_show_velocity", showVelocity);
+	shader->setUniform("u_scalingFactor", scalingFactorVelocity);
 
 	//do the draw call that renders the mesh into the screen
 	mesh->render(GL_TRIANGLES);
@@ -1338,6 +1339,11 @@ void Renderer::renderVBufferObject(const Matrix44 model, const Matrix44 prev_mod
 	// Upload camera uniforms
 	shader->setUniform("u_camera_pos", camera->eye);
 
+	shader->setUniform("u_scalingFactor", scalingFactorVelocity);
+	shader->setUniform("u_show_velocity", showVelocity); 
+
+	//shader->setUniform("u_scalingFactor", scalingFactorVelocity);
+
 	//do the draw call that renders the mesh into the screen
 	mesh->render(GL_TRIANGLES);
 
@@ -1387,6 +1393,7 @@ void Renderer::showUI()
 	ImGui::SliderInt("Samples blurVec", &nSamples,2,10);
 	ImGui::SliderFloat("carVelocity", &carVelocity, 0.0, 60.0);
 	ImGui::Checkbox("Show Velocity", &showVelocity);
+	ImGui::SliderInt("Scaling Factor Velocity", &scalingFactorVelocity,1,400);
 
 	//To make sure that only on render mode is on at a time:
 	controlRenderMode();

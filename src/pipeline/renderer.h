@@ -124,6 +124,7 @@ namespace SCN {
 		GFX::FBO* vBufferObj;
 		bool isFirstFrame = true;
 		bool showVelocity = false;
+		int scalingFactorVelocity = 1;
 
 		//updated every frame
 		Renderer(const char* shaders_atlas_filename );
